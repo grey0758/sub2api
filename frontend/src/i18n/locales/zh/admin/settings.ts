@@ -581,6 +581,8 @@ export default {
         visibility: '可见角色',
         visibilityUser: '普通用户',
         visibilityAdmin: '管理员',
+        forwardContext: '转发 Sub2API 登录上下文',
+        forwardContextHint: '为兼容旧配置默认开启，会把 Sub2API 用户 ID、会话 token 和来源 URL 追加到目标链接。外部管理页面或不明确需要这些信息的站点应关闭此项。',
         add: '添加菜单项',
         remove: '删除',
         moveUp: '上移',

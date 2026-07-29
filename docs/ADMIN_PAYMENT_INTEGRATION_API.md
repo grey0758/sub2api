@@ -106,6 +106,9 @@ curl -X POST "${BASE}/api/v1/admin/users/123/balance" \
 - `theme`（`light` / `dark`）
 - `lang`（例如 `zh` / `en`，用于向嵌入页传递当前界面语言）
 - `ui_mode`（固定 `embedded`）
+- `src_host` / `src_url`（当前 Sub2API 来源站点与页面）
+
+自定义菜单项可设置 `"forward_context": false`，此时不会转发或保留 `user_id`、`token`、`src_host`、`src_url`；`theme`、`lang`、`ui_mode` 仍会保留。未设置该字段时默认继续转发，以兼容已有配置。外部管理页面应优先关闭上下文转发。
 
 示例：
 ```text
@@ -226,6 +229,9 @@ When Sub2API opens `purchase_subscription_url` or a user-facing custom page ifra
 - `theme` (`light` / `dark`)
 - `lang` (for example `zh` / `en`, used to pass the current UI language to the embedded page)
 - `ui_mode` (fixed: `embedded`)
+- `src_host` / `src_url` (the current Sub2API origin and page)
+
+A custom menu item may set `"forward_context": false`. In that mode, `user_id`, `token`, `src_host`, and `src_url` are neither forwarded nor retained; `theme`, `lang`, and `ui_mode` remain. Omitting the field preserves the existing forwarding behavior for backward compatibility. External administration pages should normally disable context forwarding.
 
 Example:
 ```text

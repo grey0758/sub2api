@@ -13,21 +13,35 @@ const EMBEDDED_UI_MODE_VALUE = 'embedded'
 const EMBEDDED_SRC_HOST_QUERY_KEY = 'src_host'
 const EMBEDDED_SRC_QUERY_KEY = 'src_url'
 
+export interface EmbeddedUrlOptions {
+  /** Forward user, token, and source URL context. Defaults to true. */
+  forwardContext?: boolean
+}
+
 export function buildEmbeddedUrl(
   baseUrl: string,
   userId?: number,
   authToken?: string | null,
   theme: 'light' | 'dark' = 'light',
   lang?: string,
+  options: EmbeddedUrlOptions = {},
 ): string {
   if (!baseUrl) return baseUrl
   try {
     const url = new URL(baseUrl)
-    if (userId) {
-      url.searchParams.set(EMBEDDED_USER_ID_QUERY_KEY, String(userId))
-    }
-    if (authToken) {
-      url.searchParams.set(EMBEDDED_AUTH_TOKEN_QUERY_KEY, authToken)
+    const forwardContext = options.forwardContext !== false
+    if (forwardContext) {
+      if (userId) {
+        url.searchParams.set(EMBEDDED_USER_ID_QUERY_KEY, String(userId))
+      }
+      if (authToken) {
+        url.searchParams.set(EMBEDDED_AUTH_TOKEN_QUERY_KEY, authToken)
+      }
+    } else {
+      url.searchParams.delete(EMBEDDED_USER_ID_QUERY_KEY)
+      url.searchParams.delete(EMBEDDED_AUTH_TOKEN_QUERY_KEY)
+      url.searchParams.delete(EMBEDDED_SRC_HOST_QUERY_KEY)
+      url.searchParams.delete(EMBEDDED_SRC_QUERY_KEY)
     }
     url.searchParams.set(EMBEDDED_THEME_QUERY_KEY, theme)
     if (lang) {
@@ -35,7 +49,7 @@ export function buildEmbeddedUrl(
     }
     url.searchParams.set(EMBEDDED_UI_MODE_QUERY_KEY, EMBEDDED_UI_MODE_VALUE)
     // Source tracking: let the embedded page know where it's being loaded from
-    if (typeof window !== 'undefined') {
+    if (forwardContext && typeof window !== 'undefined') {
       url.searchParams.set(EMBEDDED_SRC_HOST_QUERY_KEY, window.location.origin)
       url.searchParams.set(EMBEDDED_SRC_QUERY_KEY, window.location.href)
     }

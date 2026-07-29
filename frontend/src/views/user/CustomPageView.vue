@@ -181,6 +181,7 @@ const embeddedUrl = computed(() => {
     authStore.token,
     pageTheme.value,
     locale.value,
+    { forwardContext: menuItem.value.forward_context !== false },
   )
 })
 

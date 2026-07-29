@@ -173,6 +173,8 @@ export interface CustomMenuItem {
   page_slug?: string
   visibility: 'user' | 'admin'
   sort_order: number
+  /** Defaults to true when omitted for backward compatibility. */
+  forward_context?: boolean
 }
 
 export interface CustomEndpoint {

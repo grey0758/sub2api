@@ -6139,6 +6139,29 @@
                     />
                   </div>
 
+                  <!-- Embedded context forwarding -->
+                  <div
+                    class="flex items-start justify-between gap-4 rounded-lg border border-amber-200 bg-amber-50/70 p-3 sm:col-span-2 dark:border-amber-900/60 dark:bg-amber-950/20"
+                  >
+                    <div>
+                      <label
+                        class="text-xs font-medium text-gray-700 dark:text-gray-300"
+                      >
+                        {{ t("admin.settings.customMenu.forwardContext") }}
+                      </label>
+                      <p class="mt-1 text-xs text-amber-800 dark:text-amber-300">
+                        {{ t("admin.settings.customMenu.forwardContextHint") }}
+                      </p>
+                    </div>
+                    <Toggle
+                      :data-testid="`custom-menu-forward-context-${index}`"
+                      :model-value="item.forward_context !== false"
+                      @update:model-value="
+                        (value: boolean) => (item.forward_context = value)
+                      "
+                    />
+                  </div>
+
                   <!-- SVG Icon (full width) -->
                   <div class="sm:col-span-2">
                     <label
@@ -8871,6 +8894,7 @@ const form = reactive<SettingsForm>({
     url: string;
     visibility: "user" | "admin";
     sort_order: number;
+    forward_context?: boolean;
   }>,
   custom_endpoints: [] as Array<{
     name: string;
@@ -9763,6 +9787,7 @@ function addMenuItem() {
     url: "",
     visibility: "user",
     sort_order: form.custom_menu_items.length,
+    forward_context: true,
   });
 }
 

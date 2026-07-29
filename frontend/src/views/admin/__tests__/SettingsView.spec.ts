@@ -726,6 +726,43 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(wrapper.text()).not.toContain("支付来源");
   });
 
+  it("defaults custom menu context forwarding on and persists an explicit opt-out", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      custom_menu_items: [
+        {
+          id: "cliproxy-account-pool",
+          label: "CLIProxy 账号池",
+          icon_svg: "",
+          url: "https://cliproxy.opencodex.uk/management.html#/account-pool",
+          visibility: "admin",
+          sort_order: 900,
+        },
+      ],
+    });
+    const wrapper = mountView();
+
+    await flushPromises();
+
+    const toggle = wrapper.get('[data-testid="custom-menu-forward-context-0"]');
+    expect((toggle.element as HTMLInputElement).checked).toBe(true);
+
+    await toggle.setValue(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        custom_menu_items: [
+          expect.objectContaining({
+            id: "cliproxy-account-pool",
+            forward_context: false,
+          }),
+        ],
+      }),
+    );
+  });
+
   it("shows valid passkey RP configuration and persists the sign-in toggle", async () => {
     const wrapper = mountView();
 

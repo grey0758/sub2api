@@ -586,6 +586,8 @@ export default {
         visibility: 'Visible To',
         visibilityUser: 'Regular Users',
         visibilityAdmin: 'Administrators',
+        forwardContext: 'Forward Sub2API login context',
+        forwardContextHint: 'Enabled by default for compatibility. This appends the Sub2API user ID, session token, and source URL to the target URL. Disable it for external administration pages or any site that does not explicitly require this context.',
         add: 'Add Menu Item',
         remove: 'Remove',
         moveUp: 'Move Up',

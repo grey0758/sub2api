@@ -56,6 +56,28 @@ describe('embedded-url', () => {
     expect(url.searchParams.has('lang')).toBe(false)
   })
 
+  it('suppresses sensitive context while preserving safe embed params and hash routes', () => {
+    const result = buildEmbeddedUrl(
+      'https://admin.example.com/management.html?existing=1&user_id=old&token=old&src_host=old&src_url=old#/account-pool',
+      42,
+      'token-123',
+      'dark',
+      'zh-CN',
+      { forwardContext: false },
+    )
+
+    const url = new URL(result)
+    expect(url.searchParams.get('existing')).toBe('1')
+    expect(url.searchParams.has('user_id')).toBe(false)
+    expect(url.searchParams.has('token')).toBe(false)
+    expect(url.searchParams.has('src_host')).toBe(false)
+    expect(url.searchParams.has('src_url')).toBe(false)
+    expect(url.searchParams.get('theme')).toBe('dark')
+    expect(url.searchParams.get('lang')).toBe('zh-CN')
+    expect(url.searchParams.get('ui_mode')).toBe('embedded')
+    expect(url.hash).toBe('#/account-pool')
+  })
+
   it('returns original string for invalid url input', () => {
     expect(buildEmbeddedUrl('not a url', 1, 'token')).toBe('not a url')
   })
