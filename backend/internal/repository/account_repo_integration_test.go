@@ -1392,6 +1392,10 @@ func (s *AccountRepoSuite) TestClearError_SyncSchedulerSnapshotOnRecovery() {
 		Status:       service.StatusError,
 		ErrorMessage: "temporary error",
 	})
+	_, err := s.client.Account.UpdateOneID(account.ID).
+		SetSchedulable(false).
+		Save(s.ctx)
+	s.Require().NoError(err)
 	cacheRecorder := &schedulerCacheRecorder{}
 	s.repo.schedulerCache = cacheRecorder
 
@@ -1400,10 +1404,12 @@ func (s *AccountRepoSuite) TestClearError_SyncSchedulerSnapshotOnRecovery() {
 	got, err := s.repo.GetByID(s.ctx, account.ID)
 	s.Require().NoError(err)
 	s.Require().Equal(service.StatusActive, got.Status)
+	s.Require().True(got.Schedulable)
 	s.Require().Empty(got.ErrorMessage)
 	s.Require().Len(cacheRecorder.setAccounts, 1)
 	s.Require().Equal(account.ID, cacheRecorder.setAccounts[0].ID)
 	s.Require().Equal(service.StatusActive, cacheRecorder.setAccounts[0].Status)
+	s.Require().True(cacheRecorder.setAccounts[0].Schedulable)
 }
 
 // --- UpdateSessionWindow ---
