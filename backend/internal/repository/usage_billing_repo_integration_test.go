@@ -199,6 +199,92 @@ func TestUsageBillingRepositoryApply_UpdatesAccountQuota(t *testing.T) {
 	require.InDelta(t, 3.5, quotaUsed, 0.000001)
 }
 
+func TestUsageBillingRepositoryApply_EnforcesHourlyAccountSpendWindow(t *testing.T) {
+	ctx := context.Background()
+	client := testEntClient(t)
+	repo := NewUsageBillingRepository(client, integrationDB)
+
+	user := mustCreateUser(t, client, &service.User{
+		Email:        fmt.Sprintf("usage-billing-hourly-user-%d@example.com", time.Now().UnixNano()),
+		PasswordHash: "hash",
+	})
+	apiKey := mustCreateApiKey(t, client, &service.APIKey{
+		UserID: user.ID,
+		Key:    "sk-usage-billing-hourly-" + uuid.NewString(),
+		Name:   "billing-hourly",
+	})
+	account := mustCreateAccount(t, client, &service.Account{
+		Name: "usage-billing-hourly-account-" + uuid.NewString(),
+		Type: service.AccountTypeOAuth,
+		Extra: map[string]any{
+			service.HourlySpendLimitEnabledExtraKey: true,
+			service.HourlySpendLimitUSDExtraKey:     100.0,
+		},
+	})
+
+	apply := func(requestID string, cost float64) *service.UsageBillingApplyResult {
+		t.Helper()
+		result, err := repo.Apply(ctx, &service.UsageBillingCommand{
+			RequestID:       requestID,
+			APIKeyID:        apiKey.ID,
+			UserID:          user.ID,
+			AccountID:       account.ID,
+			AccountType:     service.AccountTypeOAuth,
+			HourlySpendCost: cost,
+		})
+		require.NoError(t, err)
+		return result
+	}
+	outboxCount := func() int {
+		t.Helper()
+		var count int
+		require.NoError(t, integrationDB.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM scheduler_outbox WHERE event_type = $1 AND account_id = $2",
+			service.SchedulerOutboxEventAccountChanged, account.ID,
+		).Scan(&count))
+		return count
+	}
+
+	firstRequestID := uuid.NewString()
+	first := apply(firstRequestID, 40)
+	require.True(t, first.Applied)
+	require.NotNil(t, first.HourlySpendState)
+	require.InDelta(t, 40, first.HourlySpendState.UsedUSD, 0.000001)
+	require.False(t, first.HourlySpendState.LimitReached)
+	require.WithinDuration(t, first.HourlySpendState.WindowStartedAt.Add(time.Hour), first.HourlySpendState.WindowEndsAt, time.Second)
+	require.Equal(t, 0, outboxCount())
+
+	duplicate := apply(firstRequestID, 40)
+	require.False(t, duplicate.Applied)
+
+	crossed := apply(uuid.NewString(), 70)
+	require.InDelta(t, 110, crossed.HourlySpendState.UsedUSD, 0.000001)
+	require.True(t, crossed.HourlySpendState.LimitReached)
+	require.Equal(t, 1, outboxCount())
+
+	stillCapped := apply(uuid.NewString(), 5)
+	require.InDelta(t, 115, stillCapped.HourlySpendState.UsedUSD, 0.000001)
+	require.Equal(t, 1, outboxCount(), "already capped requests must not enqueue duplicate crossing events")
+
+	expiredStart := time.Now().UTC().Add(-2 * time.Hour).Format(time.RFC3339Nano)
+	expiredEnd := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339Nano)
+	_, err := integrationDB.ExecContext(ctx, `
+		UPDATE accounts
+		SET extra = extra || jsonb_build_object(
+			'hourly_spend_window_started_at', $2::text,
+			'hourly_spend_window_ends_at', $3::text
+		)
+		WHERE id = $1
+	`, account.ID, expiredStart, expiredEnd)
+	require.NoError(t, err)
+
+	reset := apply(uuid.NewString(), 5)
+	require.InDelta(t, 5, reset.HourlySpendState.UsedUSD, 0.000001)
+	require.False(t, reset.HourlySpendState.LimitReached)
+	require.WithinDuration(t, reset.HourlySpendState.WindowStartedAt.Add(time.Hour), reset.HourlySpendState.WindowEndsAt, time.Second)
+	require.Equal(t, 1, outboxCount())
+}
+
 func TestUsageBillingRepositoryApply_EnqueuesSchedulerOutboxOnQuotaCrossing(t *testing.T) {
 	ctx := context.Background()
 	client := testEntClient(t)

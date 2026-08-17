@@ -3,6 +3,7 @@ package dto
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -99,4 +100,30 @@ func TestAccountFromServiceShallow_NilCredentialsOmitsStatus(t *testing.T) {
 	require.NotNil(t, got)
 	require.Nil(t, got.Credentials)
 	require.Nil(t, got.CredentialsStatus)
+}
+
+func TestAccountFromServiceShallowExposesHourlySpendStateWithoutManagedExtra(t *testing.T) {
+	now := time.Now().UTC()
+	src := &service.Account{
+		ID: 21,
+		Extra: map[string]any{
+			service.HourlySpendLimitEnabledExtraKey: true,
+			service.HourlySpendLimitUSDExtraKey:     100.0,
+			service.HourlySpendUsedUSDExtraKey:      82.5,
+			service.HourlySpendWindowStartExtraKey:  now.Add(-time.Minute).Format(time.RFC3339Nano),
+			service.HourlySpendWindowEndExtraKey:    now.Add(59 * time.Minute).Format(time.RFC3339Nano),
+		},
+	}
+
+	got := AccountFromServiceShallow(src)
+	require.True(t, got.HourlySpendLimitEnabled)
+	require.NotNil(t, got.HourlySpendLimitUSD)
+	require.Equal(t, 100.0, *got.HourlySpendLimitUSD)
+	require.Equal(t, 82.5, got.HourlySpendUsedUSD)
+	require.NotNil(t, got.HourlySpendWindowStart)
+	require.NotNil(t, got.HourlySpendWindowEnd)
+	require.False(t, got.HourlySpendLimitReached)
+	require.NotContains(t, got.Extra, service.HourlySpendUsedUSDExtraKey)
+	require.NotContains(t, got.Extra, service.HourlySpendWindowStartExtraKey)
+	require.NotContains(t, got.Extra, service.HourlySpendWindowEndExtraKey)
 }

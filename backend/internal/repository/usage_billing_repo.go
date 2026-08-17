@@ -209,6 +209,14 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 		result.QuotaState = quotaState
 	}
 
+	if cmd.HourlySpendCost > 0 {
+		hourlyState, err := incrementUsageBillingAccountHourlySpend(ctx, tx, cmd.AccountID, cmd.HourlySpendCost)
+		if err != nil {
+			return err
+		}
+		result.HourlySpendState = hourlyState
+	}
+
 	return nil
 }
 
@@ -552,6 +560,90 @@ func incrementUsageBillingAccountQuota(ctx context.Context, tx *sql.Tx, accountI
 	if crossedTotal || crossedDaily || crossedWeekly {
 		if err := enqueueSchedulerOutbox(ctx, tx, service.SchedulerOutboxEventAccountChanged, &accountID, nil, nil); err != nil {
 			logger.LegacyPrintf("repository.usage_billing", "[SchedulerOutbox] enqueue quota exceeded failed: account=%d err=%v", accountID, err)
+			return nil, err
+		}
+	}
+	return &state, nil
+}
+
+func incrementUsageBillingAccountHourlySpend(ctx context.Context, tx *sql.Tx, accountID int64, amount float64) (*service.AccountHourlySpendState, error) {
+	var (
+		windowReset bool
+		state       service.AccountHourlySpendState
+	)
+	err := tx.QueryRowContext(ctx, `
+		WITH target AS (
+			SELECT
+				a.id,
+				COALESCE(a.extra, '{}'::jsonb) AS extra,
+				CURRENT_TIMESTAMP AS now_at,
+				CASE
+					WHEN NULLIF(a.extra->>'hourly_spend_window_started_at', '') IS NULL THEN TRUE
+					WHEN NULLIF(a.extra->>'hourly_spend_window_ends_at', '') IS NULL THEN TRUE
+					WHEN (a.extra->>'hourly_spend_window_ends_at')::timestamptz <= CURRENT_TIMESTAMP THEN TRUE
+					ELSE FALSE
+				END AS window_reset
+			FROM accounts a
+			WHERE a.id = $2
+				AND a.deleted_at IS NULL
+				AND COALESCE((a.extra->>'hourly_spend_limit_enabled')::boolean, FALSE)
+				AND COALESCE((a.extra->>'hourly_spend_limit_usd')::numeric, 0) > 0
+			FOR UPDATE
+		), updated AS (
+			UPDATE accounts a
+			SET extra = target.extra || jsonb_build_object(
+					'hourly_spend_used_usd',
+					CASE WHEN target.window_reset
+						THEN $1::numeric
+						ELSE COALESCE((target.extra->>'hourly_spend_used_usd')::numeric, 0) + $1::numeric
+					END,
+					'hourly_spend_window_started_at',
+					CASE WHEN target.window_reset
+						THEN to_char(target.now_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+						ELSE target.extra->>'hourly_spend_window_started_at'
+					END,
+					'hourly_spend_window_ends_at',
+					CASE WHEN target.window_reset
+						THEN to_char((target.now_at + INTERVAL '1 hour') AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+						ELSE target.extra->>'hourly_spend_window_ends_at'
+					END
+				),
+				updated_at = NOW()
+			FROM target
+			WHERE a.id = target.id
+			RETURNING
+				target.window_reset,
+				COALESCE((a.extra->>'hourly_spend_used_usd')::numeric, 0) AS hourly_spend_used_usd,
+				COALESCE((a.extra->>'hourly_spend_limit_usd')::numeric, 0) AS hourly_spend_limit_usd,
+				(a.extra->>'hourly_spend_window_started_at')::timestamptz AS hourly_spend_window_started_at,
+				(a.extra->>'hourly_spend_window_ends_at')::timestamptz AS hourly_spend_window_ends_at
+		)
+		SELECT window_reset, hourly_spend_used_usd, hourly_spend_limit_usd,
+			hourly_spend_window_started_at, hourly_spend_window_ends_at
+		FROM updated
+	`, amount, accountID).Scan(
+		&windowReset,
+		&state.UsedUSD,
+		&state.LimitUSD,
+		&state.WindowStartedAt,
+		&state.WindowEndsAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		// The setting may have been disabled after the scheduler snapshot was read.
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	state.LimitReached = state.UsedUSD >= state.LimitUSD
+	previousUsed := state.UsedUSD - amount
+	if windowReset {
+		previousUsed = 0
+	}
+	if state.LimitReached && previousUsed < state.LimitUSD {
+		if err := enqueueSchedulerOutbox(ctx, tx, service.SchedulerOutboxEventAccountChanged, &accountID, nil, nil); err != nil {
+			logger.LegacyPrintf("repository.usage_billing", "[SchedulerOutbox] enqueue hourly spend limit reached failed: account=%d err=%v", accountID, err)
 			return nil, err
 		}
 	}
