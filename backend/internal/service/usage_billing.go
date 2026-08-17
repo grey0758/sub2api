@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/shopspring/decimal"
 )
@@ -42,6 +43,7 @@ type UsageBillingCommand struct {
 	APIKeyQuotaCost     float64
 	APIKeyRateLimitCost float64
 	AccountQuotaCost    float64
+	HourlySpendCost     float64
 }
 
 func (c *UsageBillingCommand) Normalize() {
@@ -86,6 +88,7 @@ func (c *UsageBillingCommand) quantizeMonetaryFields() {
 	c.APIKeyQuotaCost = QuantizeUsageBillingAmount(c.APIKeyQuotaCost)
 	c.APIKeyRateLimitCost = QuantizeUsageBillingAmount(c.APIKeyRateLimitCost)
 	c.AccountQuotaCost = QuantizeUsageBillingAmount(c.AccountQuotaCost)
+	c.HourlySpendCost = QuantizeUsageBillingAmount(c.HourlySpendCost)
 }
 
 // QuantizeUsageBillingAmount 把金额舍入到 UsageBillingMonetaryScale 位小数，
@@ -129,6 +132,9 @@ func buildUsageBillingFingerprint(c *UsageBillingCommand) string {
 		c.APIKeyRateLimitCost,
 		c.AccountQuotaCost,
 	)
+	if c.HourlySpendCost != 0 {
+		raw += fmt.Sprintf("|hourly:%0.10f", c.HourlySpendCost)
+	}
 	if payloadHash := strings.TrimSpace(c.RequestPayloadHash); payloadHash != "" {
 		raw += "|" + payloadHash
 	}
@@ -162,12 +168,21 @@ type AccountQuotaState struct {
 	WeeklyLimit float64
 }
 
+type AccountHourlySpendState struct {
+	UsedUSD         float64
+	LimitUSD        float64
+	WindowStartedAt time.Time
+	WindowEndsAt    time.Time
+	LimitReached    bool
+}
+
 type UsageBillingApplyResult struct {
 	Applied              bool
 	APIKeyQuotaExhausted bool
 	NewBalance           *float64           // post-deduction balance (nil = no balance deduction)
 	BalanceOverdrafted   bool               // true when the sufficient-balance guard missed and debt was still recorded
 	QuotaState           *AccountQuotaState // post-increment quota state (nil = no quota increment)
+	HourlySpendState     *AccountHourlySpendState
 }
 
 // BatchImageBalanceHoldCommand describes an idempotent balance hold operation.

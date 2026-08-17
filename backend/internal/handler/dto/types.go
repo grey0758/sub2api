@@ -280,6 +280,15 @@ type Account struct {
 	QuotaWeeklyLimit *float64 `json:"quota_weekly_limit,omitempty"`
 	QuotaWeeklyUsed  *float64 `json:"quota_weekly_used,omitempty"`
 
+	// Per-account rolling one-hour spend limit. Configuration applies to every
+	// account type; usage and window timestamps are maintained by billing.
+	HourlySpendLimitEnabled bool       `json:"hourly_spend_limit_enabled"`
+	HourlySpendLimitUSD     *float64   `json:"hourly_spend_limit_usd,omitempty"`
+	HourlySpendUsedUSD      float64    `json:"hourly_spend_used_usd"`
+	HourlySpendWindowStart  *time.Time `json:"hourly_spend_window_started_at,omitempty"`
+	HourlySpendWindowEnd    *time.Time `json:"hourly_spend_window_ends_at,omitempty"`
+	HourlySpendLimitReached bool       `json:"hourly_spend_limit_reached"`
+
 	// 配额固定时间重置配置
 	QuotaDailyResetMode  *string `json:"quota_daily_reset_mode,omitempty"`
 	QuotaDailyResetHour  *int    `json:"quota_daily_reset_hour,omitempty"`

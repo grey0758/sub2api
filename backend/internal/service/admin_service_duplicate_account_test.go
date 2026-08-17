@@ -115,6 +115,11 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 			"quota_used":                      450,
 			"quota_daily_used":                25,
 			"quota_daily_start":               "2026-07-15T00:00:00Z",
+			HourlySpendLimitEnabledExtraKey:   true,
+			HourlySpendLimitUSDExtraKey:       100,
+			HourlySpendUsedUSDExtraKey:        75,
+			HourlySpendWindowStartExtraKey:    "2026-07-15T00:00:00Z",
+			HourlySpendWindowEndExtraKey:      "2026-07-15T01:00:00Z",
 			"model_rate_limits":               map[string]any{"gpt-5": "2099-01-01T00:00:00Z"},
 			"codex_5h_used_percent":           80,
 			"codex_cli_only":                  true,
@@ -158,10 +163,12 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 	require.Equal(t, source.GroupIDs, duplicate.GroupIDs)
 	require.Equal(t, source.Credentials, duplicate.Credentials)
 	require.Equal(t, map[string]any{
-		"config":         map[string]any{"region": "us-east-1"},
-		"items":          []any{map[string]any{"enabled": true}},
-		"quota_limit":    float64(1000),
-		"codex_cli_only": true,
+		"config":                        map[string]any{"region": "us-east-1"},
+		"items":                         []any{map[string]any{"enabled": true}},
+		"quota_limit":                   float64(1000),
+		HourlySpendLimitEnabledExtraKey: true,
+		HourlySpendLimitUSDExtraKey:     float64(100),
+		"codex_cli_only":                true,
 	}, duplicate.Extra)
 	require.NotContains(t, duplicate.Extra, UpstreamBillingRateSyncEnabledExtraKey)
 	require.NotNil(t, duplicate.ExpiresAt)

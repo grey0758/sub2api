@@ -125,6 +125,7 @@ func TestNormalizeQuantizesEveryMonetaryField(t *testing.T) {
 		APIKeyQuotaCost:     raw,
 		APIKeyRateLimitCost: raw,
 		AccountQuotaCost:    raw,
+		HourlySpendCost:     raw,
 	}
 	cmd.Normalize()
 
@@ -134,6 +135,7 @@ func TestNormalizeQuantizesEveryMonetaryField(t *testing.T) {
 		"APIKeyQuotaCost":     cmd.APIKeyQuotaCost,
 		"APIKeyRateLimitCost": cmd.APIKeyRateLimitCost,
 		"AccountQuotaCost":    cmd.AccountQuotaCost,
+		"HourlySpendCost":     cmd.HourlySpendCost,
 	} {
 		require.LessOrEqual(t, decimalPlaces(got), int32(UsageBillingMonetaryScale), name)
 	}

@@ -641,7 +641,10 @@ func lockAndMergeAccountProbeExtra(
 			extra -> 'upstream_billing_probe',
 			extra -> 'ollama_cloud_usage_session',
 			extra -> 'ollama_cloud_usage_auto_refresh',
-			extra -> 'ollama_cloud_usage_snapshot'
+			extra -> 'ollama_cloud_usage_snapshot',
+			extra -> 'hourly_spend_used_usd',
+			extra -> 'hourly_spend_window_started_at',
+			extra -> 'hourly_spend_window_ends_at'
 		FROM accounts
 		WHERE id = $1 AND deleted_at IS NULL
 		FOR NO KEY UPDATE
@@ -658,15 +661,18 @@ func lockAndMergeAccountProbeExtra(
 	}
 
 	var (
-		identityUnchanged            bool
-		ollamaGroupIdentityUnchanged bool
-		ollamaProxyIdentityUnchanged bool
-		currentEnabled               []byte
-		currentRateSyncEnabled       []byte
-		currentSnapshot              []byte
-		currentOllamaSession         []byte
-		currentOllamaAutoRefresh     []byte
-		currentOllamaSnapshot        []byte
+		identityUnchanged             bool
+		ollamaGroupIdentityUnchanged  bool
+		ollamaProxyIdentityUnchanged  bool
+		currentEnabled                []byte
+		currentRateSyncEnabled        []byte
+		currentSnapshot               []byte
+		currentOllamaSession          []byte
+		currentOllamaAutoRefresh      []byte
+		currentOllamaSnapshot         []byte
+		currentHourlySpendUsed        []byte
+		currentHourlySpendWindowStart []byte
+		currentHourlySpendWindowEnd   []byte
 	)
 	if err := rows.Scan(
 		&identityUnchanged,
@@ -678,6 +684,9 @@ func lockAndMergeAccountProbeExtra(
 		&currentOllamaSession,
 		&currentOllamaAutoRefresh,
 		&currentOllamaSnapshot,
+		&currentHourlySpendUsed,
+		&currentHourlySpendWindowStart,
+		&currentHourlySpendWindowEnd,
 	); err != nil {
 		return nil, err
 	}
@@ -693,6 +702,9 @@ func lockAndMergeAccountProbeExtra(
 		service.OllamaCloudUsageSessionExtraKey,
 		service.OllamaCloudUsageAutoRefreshExtraKey,
 		service.OllamaCloudUsageSnapshotExtraKey,
+		service.HourlySpendUsedUSDExtraKey,
+		service.HourlySpendWindowStartExtraKey,
+		service.HourlySpendWindowEndExtraKey,
 	} {
 		delete(extra, key)
 	}
@@ -768,6 +780,17 @@ func lockAndMergeAccountProbeExtra(
 			} else if ok {
 				extra[service.OllamaCloudUsageSnapshotExtraKey] = snapshot
 			}
+		}
+	}
+	for key, raw := range map[string][]byte{
+		service.HourlySpendUsedUSDExtraKey:     currentHourlySpendUsed,
+		service.HourlySpendWindowStartExtraKey: currentHourlySpendWindowStart,
+		service.HourlySpendWindowEndExtraKey:   currentHourlySpendWindowEnd,
+	} {
+		if value, ok, err := decodeAccountExtraJSON(raw); err != nil {
+			return nil, err
+		} else if ok {
+			extra[key] = value
 		}
 	}
 	return extra, nil
