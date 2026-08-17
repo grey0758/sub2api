@@ -1909,9 +1909,11 @@ func TestOpenAIGatewayServiceRecordUsage_SubscriptionBillingSetsSubscriptionFiel
 
 func TestOpenAIGatewayServiceRecordUsage_SimpleModeSkipsBillingAfterPersist(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}
 	userRepo := &openAIRecordUsageUserRepoStub{}
 	subRepo := &openAIRecordUsageSubRepoStub{}
 	svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, subRepo, nil)
+	svc.usageBillingRepo = billingRepo
 	svc.cfg.RunMode = config.RunModeSimple
 
 	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
@@ -1921,15 +1923,30 @@ func TestOpenAIGatewayServiceRecordUsage_SimpleModeSkipsBillingAfterPersist(t *t
 			Model:     "gpt-5.1",
 			Duration:  time.Second,
 		},
-		APIKey:  &APIKey{ID: 1000},
-		User:    &User{ID: 2000},
-		Account: &Account{ID: 3000},
+		APIKey: &APIKey{ID: 1000},
+		User:   &User{ID: 2000},
+		Account: &Account{
+			ID:   3000,
+			Type: AccountTypeOAuth,
+			Extra: map[string]any{
+				HourlySpendLimitEnabledExtraKey: true,
+				HourlySpendLimitUSDExtraKey:     100.0,
+			},
+		},
 	})
 
 	require.NoError(t, err)
 	require.Equal(t, 1, usageRepo.calls)
 	require.Equal(t, 0, userRepo.deductCalls)
 	require.Equal(t, 0, subRepo.incrementCalls)
+	require.Equal(t, 1, billingRepo.calls)
+	require.NotNil(t, billingRepo.lastCmd)
+	require.Greater(t, billingRepo.lastCmd.HourlySpendCost, 0.0)
+	require.Zero(t, billingRepo.lastCmd.BalanceCost)
+	require.Zero(t, billingRepo.lastCmd.SubscriptionCost)
+	require.Zero(t, billingRepo.lastCmd.APIKeyQuotaCost)
+	require.Zero(t, billingRepo.lastCmd.APIKeyRateLimitCost)
+	require.Zero(t, billingRepo.lastCmd.AccountQuotaCost)
 }
 
 func TestOpenAIGatewayServiceRecordUsage_ImageOnlyUsageStillPersists(t *testing.T) {

@@ -399,6 +399,17 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		}
 	}
 
+	hourlySpend := a.HourlySpendStateAt(time.Now())
+	out.HourlySpendLimitEnabled = hourlySpend.Enabled
+	if hourlySpend.LimitUSD > 0 {
+		limit := hourlySpend.LimitUSD
+		out.HourlySpendLimitUSD = &limit
+	}
+	out.HourlySpendUsedUSD = hourlySpend.UsedUSD
+	out.HourlySpendWindowStart = hourlySpend.WindowStartedAt
+	out.HourlySpendWindowEnd = hourlySpend.WindowEndsAt
+	out.HourlySpendLimitReached = hourlySpend.LimitReached
+
 	return out
 }
 
@@ -411,7 +422,10 @@ func redactAccountManagedExtra(extra map[string]any) map[string]any {
 		switch key {
 		case service.OllamaCloudUsageSessionExtraKey,
 			service.OllamaCloudUsageAutoRefreshExtraKey,
-			service.OllamaCloudUsageSnapshotExtraKey:
+			service.OllamaCloudUsageSnapshotExtraKey,
+			service.HourlySpendUsedUSDExtraKey,
+			service.HourlySpendWindowStartExtraKey,
+			service.HourlySpendWindowEndExtraKey:
 			continue
 		default:
 			redacted[key] = value

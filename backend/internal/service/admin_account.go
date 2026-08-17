@@ -99,13 +99,16 @@ var duplicateAccountDiscardedExtraKeys = map[string]struct{}{
 	"crs_kind":       {},
 	"crs_synced_at":  {},
 	// Local quota usage and derived window timestamps must start fresh.
-	"quota_used":            {},
-	"quota_daily_used":      {},
-	"quota_weekly_used":     {},
-	"quota_daily_start":     {},
-	"quota_weekly_start":    {},
-	"quota_daily_reset_at":  {},
-	"quota_weekly_reset_at": {},
+	"quota_used":                   {},
+	"quota_daily_used":             {},
+	"quota_weekly_used":            {},
+	"quota_daily_start":            {},
+	"quota_weekly_start":           {},
+	"quota_daily_reset_at":         {},
+	"quota_weekly_reset_at":        {},
+	HourlySpendUsedUSDExtraKey:     {},
+	HourlySpendWindowStartExtraKey: {},
+	HourlySpendWindowEndExtraKey:   {},
 	// Provider observations, capability probes, and transient scheduling state.
 	"model_rate_limits":                      {},
 	"session_window_utilization":             {},
@@ -406,6 +409,10 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 	delete(accountExtra, OllamaCloudUsageSessionExtraKey)
 	delete(accountExtra, OllamaCloudUsageAutoRefreshExtraKey)
 	delete(accountExtra, OllamaCloudUsageSnapshotExtraKey)
+	ClearHourlySpendRuntime(accountExtra)
+	if err := ValidateHourlySpendLimitExtra(accountExtra); err != nil {
+		return nil, err
+	}
 	accountExtra = prepareCodexFingerprintExtraForCreate(input.Platform, input.Type, accountExtra)
 	account := &Account{
 		Name:        input.Name,
@@ -635,6 +642,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		delete(normalizedExtra, OllamaCloudUsageSessionExtraKey)
 		delete(normalizedExtra, OllamaCloudUsageAutoRefreshExtraKey)
 		delete(normalizedExtra, OllamaCloudUsageSnapshotExtraKey)
+		if err := ValidateHourlySpendLimitExtra(normalizedExtra); err != nil {
+			return nil, err
+		}
 		// 保留配额用量和专用服务受管字段，防止普通账号编辑意外覆盖。
 		for _, key := range []string{
 			"quota_used",
@@ -649,6 +659,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			OllamaCloudUsageSessionExtraKey,
 			OllamaCloudUsageAutoRefreshExtraKey,
 			OllamaCloudUsageSnapshotExtraKey,
+			HourlySpendUsedUSDExtraKey,
+			HourlySpendWindowStartExtraKey,
+			HourlySpendWindowEndExtraKey,
 		} {
 			if v, ok := account.Extra[key]; ok {
 				normalizedExtra[key] = v

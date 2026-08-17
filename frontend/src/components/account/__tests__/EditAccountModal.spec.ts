@@ -316,6 +316,35 @@ describe('EditAccountModal', () => {
     authIsSimpleMode.value = true
   })
 
+  it('loads and updates the per-account hourly spend limit', async () => {
+    const account = buildAccount()
+    account.extra = {
+      hourly_spend_limit_enabled: true,
+      hourly_spend_limit_usd: 100
+    }
+    account.hourly_spend_limit_enabled = true
+    account.hourly_spend_limit_usd = 100
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    const toggle = wrapper.get('[data-testid="hourly-spend-limit-toggle"]')
+    const input = wrapper.get<HTMLInputElement>('[data-testid="hourly-spend-limit-input"]')
+    expect(toggle.attributes('aria-checked')).toBe('true')
+    expect(input.element.value).toBe('100')
+
+    await input.setValue('125')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toMatchObject({
+      hourly_spend_limit_enabled: true,
+      hourly_spend_limit_usd: 125
+    })
+  })
+
   it('reopening the same account rehydrates the OpenAI whitelist from props', async () => {
     const account = buildAccount()
     updateAccountMock.mockReset()

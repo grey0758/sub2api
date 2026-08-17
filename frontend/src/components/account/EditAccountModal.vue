@@ -1566,6 +1566,37 @@
         </div>
       </div>
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <label class="input-label mb-0">{{ t('admin.accounts.hourlySpend.title') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.hourlySpend.description') }}
+            </p>
+          </div>
+          <Toggle
+            v-model="hourlySpendLimitEnabled"
+            data-testid="hourly-spend-limit-toggle"
+            :aria-label="t('admin.accounts.hourlySpend.title')"
+          />
+        </div>
+        <div v-if="hourlySpendLimitEnabled" class="mt-3 max-w-xs">
+          <label class="input-label">{{ t('admin.accounts.hourlySpend.limitLabel') }}</label>
+          <div class="relative">
+            <span class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-sm text-gray-500">$</span>
+            <input
+              v-model.number="hourlySpendLimitUSD"
+              type="number"
+              min="0.01"
+              step="0.01"
+              required
+              class="input pl-7"
+              data-testid="hourly-spend-limit-input"
+            />
+          </div>
+          <p class="input-hint">{{ t('admin.accounts.hourlySpend.limitHint') }}</p>
+        </div>
+      </div>
+      <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <label class="input-label">{{ t('admin.accounts.expiresAt') }}</label>
         <input v-model="expiresAtInput" type="datetime-local" class="input" />
         <p class="input-hint">{{ t('admin.accounts.expiresAtHint') }}</p>
@@ -3038,6 +3069,8 @@ const autoPause5hDisabled = ref(false)
 const autoPause7dDisabled = ref(false)
 const upstreamBillingAutoProbeEnabled = ref(false)
 const upstreamBillingRateSyncEnabled = ref(false)
+const hourlySpendLimitEnabled = ref(false)
+const hourlySpendLimitUSD = ref(100)
 const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
 const allowOverages = ref(false) // For antigravity accounts: enable AI Credits overages
 const antigravityProjectId = ref('')
@@ -3567,6 +3600,14 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 	upstreamBillingAutoProbeEnabled.value = extra?.upstream_billing_probe_enabled === true
   upstreamBillingRateSyncEnabled.value =
     upstreamBillingAutoProbeEnabled.value && extra?.upstream_billing_rate_sync_enabled === true
+  hourlySpendLimitEnabled.value =
+    newAccount.hourly_spend_limit_enabled === true || extra?.hourly_spend_limit_enabled === true
+  const configuredHourlySpendLimit =
+    newAccount.hourly_spend_limit_usd ?? extra?.hourly_spend_limit_usd
+  hourlySpendLimitUSD.value =
+    typeof configuredHourlySpendLimit === 'number' && configuredHourlySpendLimit > 0
+      ? configuredHourlySpendLimit
+      : 100
 
   // Load OpenAI passthrough toggle (OpenAI OAuth/SetupToken/API Key)
   openaiPassthroughEnabled.value = false
@@ -5078,6 +5119,21 @@ const handleSubmit = async () => {
       writeQuotaNotifyToExtra(newExtra, 'update')
       updatePayload.extra = newExtra
     }
+
+    if (
+      hourlySpendLimitEnabled.value &&
+      (!Number.isFinite(hourlySpendLimitUSD.value) || hourlySpendLimitUSD.value <= 0)
+    ) {
+      appStore.showError(t('admin.accounts.hourlySpend.invalidLimit'))
+      return
+    }
+    const hourlySpendExtra = {
+      ...((updatePayload.extra as Record<string, unknown>) ||
+        (props.account.extra as Record<string, unknown>) || {})
+    }
+    hourlySpendExtra.hourly_spend_limit_enabled = hourlySpendLimitEnabled.value
+    hourlySpendExtra.hourly_spend_limit_usd = hourlySpendLimitUSD.value
+    updatePayload.extra = hourlySpendExtra
 
     const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {
       await submitUpdateAccount(accountID, updatePayload)

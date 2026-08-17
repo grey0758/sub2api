@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -427,6 +428,20 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	}
 
 	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+		if err := applySimpleModeHourlySpend(
+			ctx,
+			requestID,
+			usageLog,
+			cost,
+			user,
+			apiKey,
+			account,
+			accountRateMultiplier,
+			s.billingDeps(),
+			s.usageBillingRepo,
+		); err != nil {
+			slog.Error("simple mode hourly spend update failed", "account_id", account.ID, "error", err)
+		}
 		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
 		logger.LegacyPrintf("service.openai_gateway", "[SIMPLE MODE] Usage recorded (not billed): user=%d, tokens=%d", usageLog.UserID, usageLog.TotalTokens())
 		s.deferredService.ScheduleLastUsedUpdate(account.ID)

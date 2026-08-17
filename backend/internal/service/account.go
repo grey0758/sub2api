@@ -194,6 +194,9 @@ func (a *Account) IsSchedulable() bool {
 	if a.TempUnschedulableUntil != nil && now.Before(*a.TempUnschedulableUntil) {
 		return false
 	}
+	if a.IsHourlySpendLimitExceededAt(now) {
+		return false
+	}
 	if a.IsAPIKeyOrBedrock() && a.IsQuotaExceeded() {
 		return false
 	}

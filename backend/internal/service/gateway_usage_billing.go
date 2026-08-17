@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -82,6 +83,7 @@ type postUsageBillingParams struct {
 	AccountRateMultiplier float64
 	APIKeyService         APIKeyQuotaUpdater
 	Platform              string // 来自 APIKey 关联 Group 的平台标识
+	HourlySpendOnly       bool   // simple 模式只累计账号小时限额，不触发其它扣费或配额副作用
 }
 
 // PlatformFromAPIKey 从 APIKey 关联的 Group 推导 platform 名称。
@@ -310,25 +312,63 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 	// user-specific) rate multiplier consumes subscription quota at the expected
 	// speed. TotalCost remains the raw (pre-multiplier) value; downstream guards
 	// on "> 0" still correctly skip free subscriptions (RateMultiplier == 0).
-	if p.IsSubscriptionBill && p.Subscription != nil && p.Cost.TotalCost > 0 {
-		cmd.SubscriptionID = &p.Subscription.ID
-		cmd.SubscriptionCost = p.Cost.ActualCost
-	} else if p.Cost.ActualCost > 0 {
-		cmd.BalanceCost = p.Cost.ActualCost
-	}
+	if !p.HourlySpendOnly {
+		if p.IsSubscriptionBill && p.Subscription != nil && p.Cost.TotalCost > 0 {
+			cmd.SubscriptionID = &p.Subscription.ID
+			cmd.SubscriptionCost = p.Cost.ActualCost
+		} else if p.Cost.ActualCost > 0 {
+			cmd.BalanceCost = p.Cost.ActualCost
+		}
 
-	if p.shouldDeductAPIKeyQuota() {
-		cmd.APIKeyQuotaCost = p.Cost.ActualCost
+		if p.shouldDeductAPIKeyQuota() {
+			cmd.APIKeyQuotaCost = p.Cost.ActualCost
+		}
+		if p.shouldUpdateRateLimits() {
+			cmd.APIKeyRateLimitCost = p.Cost.ActualCost
+		}
+		if p.shouldUpdateAccountQuota() {
+			cmd.AccountQuotaCost = p.Cost.TotalCost * p.AccountRateMultiplier
+		}
 	}
-	if p.shouldUpdateRateLimits() {
-		cmd.APIKeyRateLimitCost = p.Cost.ActualCost
-	}
-	if p.shouldUpdateAccountQuota() {
-		cmd.AccountQuotaCost = p.Cost.TotalCost * p.AccountRateMultiplier
+	if p.Account.HourlySpendLimitEnabled() {
+		if usageLog != nil && usageLog.AccountStatsCost != nil && *usageLog.AccountStatsCost > 0 {
+			cmd.HourlySpendCost = *usageLog.AccountStatsCost
+		} else {
+			cmd.HourlySpendCost = p.Cost.TotalCost * p.AccountRateMultiplier
+		}
+		if cmd.HourlySpendCost < 0 {
+			cmd.HourlySpendCost = 0
+		}
 	}
 
 	cmd.Normalize()
 	return cmd
+}
+
+func applySimpleModeHourlySpend(
+	ctx context.Context,
+	requestID string,
+	usageLog *UsageLog,
+	cost *CostBreakdown,
+	user *User,
+	apiKey *APIKey,
+	account *Account,
+	accountRateMultiplier float64,
+	deps *billingDeps,
+	repo UsageBillingRepository,
+) error {
+	if account == nil || !account.HourlySpendLimitEnabled() {
+		return nil
+	}
+	_, err := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
+		Cost:                  cost,
+		User:                  user,
+		APIKey:                apiKey,
+		Account:               account,
+		AccountRateMultiplier: accountRateMultiplier,
+		HourlySpendOnly:       true,
+	}, deps, repo)
+	return err
 }
 
 func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog, p *postUsageBillingParams, deps *billingDeps, repo UsageBillingRepository) (bool, error) {
@@ -338,6 +378,9 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 
 	cmd := buildUsageBillingCommand(requestID, usageLog, p)
 	if cmd == nil || cmd.RequestID == "" || repo == nil {
+		if p.HourlySpendOnly {
+			return false, errors.New("usage billing repository unavailable for hourly spend")
+		}
 		postUsageBilling(ctx, p, deps)
 		return true, nil
 	}
@@ -359,6 +402,10 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 		if invalidator, ok := p.APIKeyService.(apiKeyAuthCacheInvalidator); ok && p.APIKey != nil && p.APIKey.Key != "" {
 			invalidator.InvalidateAuthCacheByKey(billingCtx, p.APIKey.Key)
 		}
+	}
+	if p.HourlySpendOnly {
+		deps.deferredService.ScheduleLastUsedUpdate(p.Account.ID)
+		return true, nil
 	}
 
 	finalizePostUsageBilling(billingCtx, p, deps, result)
@@ -891,6 +938,20 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	}
 
 	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+		if err := applySimpleModeHourlySpend(
+			ctx,
+			usageLog.RequestID,
+			usageLog,
+			cost,
+			user,
+			apiKey,
+			account,
+			accountRateMultiplier,
+			s.billingDeps(),
+			s.usageBillingRepo,
+		); err != nil {
+			slog.Error("simple mode hourly spend update failed", "account_id", account.ID, "error", err)
+		}
 		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
 		logger.LegacyPrintf("service.gateway", "[SIMPLE MODE] Usage recorded (not billed): user=%d, tokens=%d", usageLog.UserID, usageLog.TotalTokens())
 		s.deferredService.ScheduleLastUsedUpdate(account.ID)
