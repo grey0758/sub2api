@@ -578,9 +578,17 @@ func TestOpenAIGatewayService_OpenAIHTTPStripsInputNamespacesBeforeFirstForward(
 		for _, path := range []string{"/v1/responses", "/v1/responses/compact"} {
 			t.Run(tt.name+path, func(t *testing.T) {
 				body := []byte(`{"model":"gpt-5.5","stream":false,"instructions":"test","input":[{"type":"message","role":"user","namespace":"remove","content":[{"type":"input_text","text":"hello","namespace":"nested-keep"}]}]}`)
-				upstream := &httpUpstreamRecorder{responses: []*http.Response{
-					newOpenAIRejectedFieldTestResponse(http.StatusOK, `{"id":"resp_namespace_ok","output":[],"usage":{"input_tokens":1,"output_tokens":1,"input_tokens_details":{"cached_tokens":0}}}`),
-				}}
+				response := newOpenAIRejectedFieldTestResponse(http.StatusOK, `{"id":"resp_namespace_ok","output":[],"usage":{"input_tokens":1,"output_tokens":1,"input_tokens_details":{"cached_tokens":0}}}`)
+				if tt.name == "oauth" && path == "/v1/responses/compact" {
+					response = &http.Response{
+						StatusCode: http.StatusOK,
+						Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+						Body: io.NopCloser(strings.NewReader(
+							"data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"compaction\",\"encrypted_content\":\"summary\"}}\n\n" +
+								"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_namespace_ok\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n")),
+					}
+				}
+				upstream := &httpUpstreamRecorder{responses: []*http.Response{response}}
 				c := newOpenAIRejectedFieldTestContext(body)
 				c.Request.URL.Path = path
 

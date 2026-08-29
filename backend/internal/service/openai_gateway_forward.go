@@ -36,6 +36,13 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if _, err := s.prepareCodexAccountIdentitySource(ctx, c, account); err != nil {
 		return nil, err
 	}
+	// ChatGPT's legacy unary /responses/compact resource is sunset. Keep the
+	// public compatibility endpoint usable by adapting it to native v2 for
+	// OAuth accounts; API-key providers retain their provider-specific route.
+	if isOpenAIResponsesCompactPath(c) && account.IsOpenAIOAuthLike() &&
+		!account.IsOpenAIPassthroughEnabled() && len(account.GetCompactModelMapping()) == 0 {
+		return s.forwardLegacyOpenAICompactViaNativeV2(ctx, c, account, body)
+	}
 	startTime := time.Now()
 	// 固定渠道映射后的请求级 canonical body；账号 normalize/strip 不得改写跨 failover hint。
 	canonicalImageIntentBody := body
