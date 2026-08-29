@@ -73,7 +73,7 @@ func TestResolveOpenAICompactFallbackModelPrefersAccountMapping(t *testing.T) {
 	require.Equal(t, "global-compact", svc.resolveOpenAICompactFallbackModel(account, "unmapped-model"))
 }
 
-func TestOpenAIGatewayForwardUsesGlobalCompactModelOnInitialLegacyRequest(t *testing.T) {
+func TestOpenAIGatewayForwardAdaptsLegacyCompactToNativeResponses(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := []byte(`{"model":"gpt-5.5","stream":false,"instructions":"compact-test","input":[]}`)
 	c := newOpenAICompactFallbackTestContext(t, "/v1/responses/compact")
@@ -81,8 +81,10 @@ func TestOpenAIGatewayForwardUsesGlobalCompactModelOnInitialLegacyRequest(t *tes
 	c.Request.Header.Set("Content-Type", "application/json")
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
 		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body:       io.NopCloser(strings.NewReader(`{"id":"resp_compact","status":"completed","model":"global-compact","output":[],"usage":{"input_tokens":1,"output_tokens":1}}`)),
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(
+			"data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"compaction\",\"encrypted_content\":\"summary\"}}\n\n" +
+				"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_compact\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n")),
 	}}
 	svc := &OpenAIGatewayService{
 		cfg:          &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "global-compact"}},
@@ -99,8 +101,9 @@ func TestOpenAIGatewayForwardUsesGlobalCompactModelOnInitialLegacyRequest(t *tes
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Len(t, upstream.bodies, 1)
-	require.Equal(t, "global-compact", gjson.GetBytes(upstream.bodies[0], "model").String())
-	require.Contains(t, upstream.requests[0].URL.Path, "/compact")
+	require.Equal(t, "gpt-5.5", gjson.GetBytes(upstream.bodies[0], "model").String())
+	require.Equal(t, chatgptCodexURL, upstream.requests[0].URL.String())
+	require.True(t, gjson.GetBytes(upstream.bodies[0], "stream").Bool())
 }
 
 func TestPrepareOpenAICompactFallbackRetryLegacyPathAndSingleAttemptGuard(t *testing.T) {

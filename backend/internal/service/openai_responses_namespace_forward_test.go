@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
@@ -89,14 +91,17 @@ func TestOpenAIGatewayService_APIKeyPreservesDeclaredNamespaceToolCalls(t *testi
 	require.False(t, gjson.GetBytes(forwarded, "input.1.namespace").Exists())
 }
 
-// compact 端点 schema 更窄：input[].namespace 会 400 Unknown parameter（issue #4761），
-// 且没有证据表明它接受 namespace 工具声明。compact 只做历史摘要、不需要模型寻址工具，
-// 因此保持既有的摊平 + 全量清理行为，不随默认值翻转扩大风险面。
-func TestOpenAIGatewayService_OAuthCompactKeepsFlattening(t *testing.T) {
+// Legacy compact is adapted to native Responses v2, which preserves the
+// namespace protocol while appending the compaction trigger.
+func TestOpenAIGatewayService_OAuthLegacyCompactUsesNativeResponses(t *testing.T) {
 	body := []byte(codexNamespaceRequestBody)
-	upstream := &httpUpstreamRecorder{responses: []*http.Response{
-		newOpenAIRejectedFieldTestResponse(http.StatusOK, namespaceForwardOKResponse),
-	}}
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(
+			"data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"compaction\",\"encrypted_content\":\"summary\"}}\n\n" +
+				"data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_ns\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n")),
+	}}}
 	c := newOpenAIRejectedFieldTestContext(body)
 	c.Request.URL.Path = "/v1/responses/compact"
 
@@ -108,11 +113,10 @@ func TestOpenAIGatewayService_OAuthCompactKeepsFlattening(t *testing.T) {
 	require.NotNil(t, result)
 	require.Len(t, upstream.bodies, 1)
 	forwarded := upstream.bodies[0]
-
-	require.False(t, gjson.GetBytes(forwarded, "input.0.namespace").Exists())
-	require.False(t, gjson.GetBytes(forwarded, "input.1.namespace").Exists())
-	require.False(t, gjson.GetBytes(forwarded, `tools.#(type=="namespace")`).Exists())
-	require.Equal(t, "collaboration__spawn_agent", gjson.GetBytes(forwarded, "input.0.name").String())
+	t.Logf("forwarded=%s", forwarded)
+	require.Equal(t, chatgptCodexURL, upstream.requests[0].URL.String())
+	require.Equal(t, "compaction_trigger", gjson.GetBytes(forwarded, "input.2.type").String())
+	require.True(t, gjson.GetBytes(forwarded, `tools.#(type=="namespace")`).Exists())
 }
 
 // 账号开关为不认识 namespace 的兼容上游保留退路：打开后恢复 0.1.166 的摊平行为。
