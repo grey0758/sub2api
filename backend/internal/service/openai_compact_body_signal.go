@@ -142,6 +142,15 @@ func applyOpenAICodexBetaFeatures(c *gin.Context, account *Account, h http.Heade
 		ensureOpenAIRemoteCompactionV2BetaFeature(h)
 		return
 	}
+	// The legacy unary /responses/compact route is a separate protocol from
+	// native remote compaction v2 (/responses + compaction_trigger).  Current
+	// ChatGPT Codex returns 404 when the gateway advertises
+	// remote_compaction_v2 on that legacy /compact endpoint, while the same
+	// account succeeds without the synthetic header.  Preserve any explicit
+	// caller header, but never inject the v2 feature into the legacy route.
+	if isOpenAIResponsesCompactPath(c) {
+		return
+	}
 	if account == nil || !account.IsOpenAIOAuthLike() {
 		return
 	}

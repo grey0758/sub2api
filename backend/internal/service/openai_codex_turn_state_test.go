@@ -317,6 +317,22 @@ func TestApplyOpenAICodexBetaFeatures(t *testing.T) {
 			"客户端显式声明的能力集不得被网关改写（非空即视为用户已关闭 v2）")
 	})
 
+	t.Run("legacy_compact_does_not_inject_native_v2_feature", func(t *testing.T) {
+		c, _ := newTurnStateTestContext(t, 7, "sess-beta")
+		c.Request.URL.Path = "/v1/responses/compact"
+		h := http.Header{}
+		applyOpenAICodexBetaFeatures(c, oauthAccount, h)
+		require.Empty(t, h.Get("x-codex-beta-features"))
+	})
+
+	t.Run("legacy_compact_preserves_explicit_client_feature_header", func(t *testing.T) {
+		c, _ := newTurnStateTestContext(t, 7, "sess-beta")
+		c.Request.URL.Path = "/v1/responses/compact"
+		h := http.Header{"X-Codex-Beta-Features": []string{"client_feature"}}
+		applyOpenAICodexBetaFeatures(c, oauthAccount, h)
+		require.Equal(t, "client_feature", h.Get("x-codex-beta-features"))
+	})
+
 	t.Run("native_v2_forces_feature_even_when_client_trimmed_it", func(t *testing.T) {
 		c, _ := newTurnStateTestContext(t, 7, "sess-beta")
 		MarkOpenAINativeCompactionV2(c)
