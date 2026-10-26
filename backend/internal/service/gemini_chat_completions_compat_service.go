@@ -56,6 +56,9 @@ func (s *GeminiMessagesCompatService) ForwardAsChatCompletions(
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
 
+	if err := resolveGeminiCompatImages(ctx, responsesReq); err != nil {
+		return nil, s.writeChatCompletionsError(c, compatImageErrorStatus(err), "reference_image_error", err.Error())
+	}
 	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(responsesReq)
 	if err != nil {
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())

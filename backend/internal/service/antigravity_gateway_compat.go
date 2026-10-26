@@ -75,6 +75,9 @@ func (s *AntigravityGatewayService) ForwardAsChatCompletions(
 	if err != nil {
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
+	if err := resolveGeminiCompatImages(ctx, responsesRequest); err != nil {
+		return nil, s.writeAntigravityCompatError(c, compatImageErrorStatus(err), "reference_image_error", err.Error())
+	}
 	claudeRequest, err := apicompat.ResponsesToAnthropicRequest(responsesRequest)
 	if err != nil {
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
@@ -118,6 +121,9 @@ func (s *AntigravityGatewayService) ForwardAsResponses(
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 	}
 
+	if err := resolveGeminiCompatImages(ctx, &request); err != nil {
+		return nil, s.writeAntigravityCompatError(c, compatImageErrorStatus(err), "reference_image_error", err.Error())
+	}
 	claudeRequest, err := apicompat.ResponsesToAnthropicRequest(&request)
 	if err != nil {
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
