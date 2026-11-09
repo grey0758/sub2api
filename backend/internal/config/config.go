@@ -1049,6 +1049,10 @@ const (
 
 // GatewayConfig API网关相关配置
 type GatewayConfig struct {
+	// PreserveConcurrencyOnStartup keeps other live instances' Redis slots and
+	// waiting counters intact during an application handoff. Expired-slot
+	// cleanup continues normally. Enable on every instance sharing that Redis.
+	PreserveConcurrencyOnStartup bool `mapstructure:"preserve_concurrency_on_startup"`
 	// MinOutputTokens is the minimum max_output_tokens used when
 	// converting Chat Completions or Anthropic requests to Responses.
 	MinOutputTokens int `mapstructure:"min_output_tokens"`
@@ -2131,6 +2135,7 @@ func configureConfigSource(setConfigFile, addConfigPath func(string)) {
 func setDefaults() {
 	viper.SetDefault("run_mode", RunModeStandard)
 	viper.SetDefault("gateway.min_output_tokens", 128)
+	viper.SetDefault("gateway.preserve_concurrency_on_startup", false)
 	viper.SetDefault("simple_mode.auto_create_default_groups", true)
 	viper.SetDefault("simple_mode_key_rate_limit_enabled", false)
 
