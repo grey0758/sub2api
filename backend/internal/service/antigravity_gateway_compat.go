@@ -226,29 +226,56 @@ func (s *AntigravityGatewayService) forwardAntigravityCompat(
 		return nil, err
 	}
 
-	result, err := s.antigravityRetryLoop(antigravityRetryLoopParams{
-		ctx:             ctx,
-		prefix:          call.prefix,
-		account:         account,
-		proxyURL:        call.proxyURL,
-		accessToken:     call.accessToken,
-		action:          "streamGenerateContent",
-		body:            call.geminiBody,
-		c:               c,
-		httpUpstream:    s.httpUpstream,
-		settingService:  s.settingService,
-		accountRepo:     s.accountRepo,
-		handleError:     s.handleUpstreamError,
-		requestedModel:  request.originalModel,
-		isStickySession: false,
-		groupID:         0,
-		sessionHash:     "",
-	})
-	if err != nil {
-		return nil, s.handleAntigravityCompatTransportError(c, err)
+	// Keep the one-recovery budget across account failovers in this request.
+	recovery := antigravityCompatRecoveryFromContext(c)
+	if recovery == nil {
+		recovery = &antigravityCompatTextRecovery{allowed: len(gjson.GetBytes(request.originalBody, "tools").Array()) == 0 && antigravityCompatTextOnly(call.geminiBody), started: request.startTime}
+		c.Set(antigravityCompatTextRecoveryKey, recovery)
 	}
-
-	return s.consumeAntigravityCompatResponse(ctx, c, account, call, result.resp)
+	for attempt := 0; attempt < 2; attempt++ {
+		result, err := s.antigravityRetryLoop(antigravityRetryLoopParams{
+			ctx:             ctx,
+			prefix:          call.prefix,
+			account:         account,
+			proxyURL:        call.proxyURL,
+			accessToken:     call.accessToken,
+			action:          "streamGenerateContent",
+			body:            call.geminiBody,
+			c:               c,
+			httpUpstream:    s.httpUpstream,
+			settingService:  s.settingService,
+			accountRepo:     s.accountRepo,
+			handleError:     s.handleUpstreamError,
+			requestedModel:  request.originalModel,
+			isStickySession: false,
+			groupID:         0,
+			sessionHash:     "",
+		})
+		if err != nil {
+			if recovery.used && c.Writer.Written() {
+				return nil, writeAntigravityCompatRecoveryStreamError(c, request.protocol, "Upstream request failed during text recovery")
+			}
+			return nil, s.handleAntigravityCompatTransportError(c, err)
+		}
+		writtenBefore := c.Writer.Size()
+		forwardResult, consumeErr := s.consumeAntigravityCompatResponse(ctx, c, account, call, result.resp)
+		if !errors.Is(consumeErr, errAntigravityCompatRecoverText) {
+			if isAntigravityMalformedError(consumeErr) {
+				recordAntigravityCompatGenerationFailure(c, account, false, nil)
+			}
+			if consumeErr != nil && recovery.used && request.clientStream && c.Writer.Written() && c.Writer.Size() == writtenBefore {
+				return nil, writeAntigravityCompatRecoveryStreamError(c, request.protocol, "Upstream generation failed during text recovery")
+			}
+			return forwardResult, consumeErr
+		}
+		recovery.used = true
+		recordAntigravityCompatGenerationFailure(c, account, true, recovery.failedUsage)
+		call.geminiBody, err = antigravityCompatTextRecoveryBody(call.geminiBody)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return nil, errors.New("text recovery exhausted")
 }
 
 func (s *AntigravityGatewayService) prepareAntigravityCompatCall(
@@ -515,6 +542,12 @@ func (s *AntigravityGatewayService) consumeAntigravityCompatResponse(
 ) (*ForwardResult, error) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= http.StatusBadRequest {
+		if recovery := antigravityCompatRecoveryFromContext(c); recovery != nil && recovery.used && c.Writer.Written() {
+			body := s.readUpstreamErrorBody(resp)
+			s.handleUpstreamError(ctx, call.prefix, account, resp.StatusCode, resp.Header, body, call.request.originalModel, 0, "", false)
+			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{Platform: account.Platform, AccountID: account.ID, ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account), UpstreamStatusCode: resp.StatusCode, Kind: "http_error", Message: "Text recovery upstream HTTP error"})
+			return nil, writeAntigravityCompatRecoveryStreamError(c, call.request.protocol, "Upstream HTTP error during text recovery")
+		}
 		return nil, s.handleAntigravityCompatHTTPError(ctx, c, account, call, resp)
 	}
 
@@ -723,6 +756,9 @@ func (s *AntigravityGatewayService) handleResponsesNonStreamingFromAntigravity(
 }
 
 func (s *AntigravityGatewayService) mapAntigravityCompatCollectionError(c *gin.Context, err error) error {
+	if errors.Is(err, errAntigravityCompatRecoverText) {
+		return err
+	}
 	if errors.Is(err, errAntigravityMalformedFunctionCall) {
 		return s.writeAntigravityCompatError(c, http.StatusBadGateway, "upstream_error", errAntigravityMalformedFunctionCall.Error())
 	}

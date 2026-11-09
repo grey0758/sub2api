@@ -879,15 +879,16 @@ func (s *AntigravityGatewayService) collectClaudeStreamResponse(c *gin.Context, 
 				continue
 			}
 
-			// 最后的错误帧可能没有 parts，必须在聚合选择前保留失败原因。
+			// A generation error must survive aggregation even if its terminal frame has no parts.
 			if extractGeminiFinishReason(parsed) == "MALFORMED_FUNCTION_CALL" {
+				if antigravityCompatCanRecoverText(c) && !antigravityCompatPartsHaveOutput(collectedParts) && !antigravityCompatPartsHaveOutput(extractGeminiParts(parsed)) {
+					antigravityCompatRecoveryFromContext(c).failedUsage = extractGeminiUsage(inner)
+					return nil, nil, errAntigravityCompatRecoverText
+				}
 				return nil, nil, antigravity.ErrMalformedFunctionCall
 			}
 
 			last = parsed
-			if extractGeminiFinishReason(parsed) == "MALFORMED_FUNCTION_CALL" {
-				return nil, nil, errAntigravityMalformedFunctionCall
-			}
 
 			// 保留最后一个有 parts 的响应，并收集所有 parts
 			parts := extractGeminiParts(parsed)

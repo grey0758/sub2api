@@ -115,6 +115,7 @@ type antigravityCompatStreamSession struct {
 	firstTokenMs                *int
 	startTime                   time.Time
 	meaningfulData              bool
+	upstreamOutput              bool
 	preContentKeepaliveSent     bool
 	preContentKeepaliveInterval time.Duration
 }
@@ -142,6 +143,17 @@ func newAntigravityCompatStreamSession(
 }
 
 func (s *antigravityCompatStreamSession) consume(line string) {
+	// Unknown media/tool parts also rule out replay, even when the text
+	// converter cannot represent them or suppresses a malformed final frame.
+	if strings.HasPrefix(line, "data:") {
+		var raw map[string]any
+		if json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(line, "data:"))), &raw) == nil {
+			if response, ok := raw["response"].(map[string]any); ok {
+				raw = response
+			}
+			s.upstreamOutput = s.upstreamOutput || antigravityCompatPartsHaveOutput(extractGeminiParts(raw))
+		}
+	}
 	claudeEvents := s.processor.ProcessLine(strings.TrimRight(line, "\r\n"))
 	if len(claudeEvents) == 0 || s.processor.MalformedFunctionCall() {
 		return
@@ -359,9 +371,14 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStreamWithKeepaliveIn
 			s.observeAntigravityGeminiSSELine(c, event.line)
 			session.consume(event.line)
 			if session.processor.MalformedFunctionCall() {
+				if antigravityCompatCanRecoverText(c) && !session.hasMeaningfulData() && !session.upstreamOutput && !writer.Disconnected() {
+					recovery := antigravityCompatRecoveryFromContext(c)
+					recovery.failedUsage = session.collectResult(false).usage
+					return nil, errAntigravityCompatRecoverText
+				}
 				// Never convert an upstream generation failure into completed or
 				// blindly retry a request that may already have emitted a tool.
-				if session.preContentKeepaliveSent || session.meaningfulData {
+				if c.Writer.Written() || session.meaningfulData {
 					writeAntigravityCompatStreamError(c, adapter, writer, errAntigravityMalformedFunctionCall.Error())
 					return session.collectResult(false), errAntigravityMalformedFunctionCall
 				}
