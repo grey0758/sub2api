@@ -327,6 +327,10 @@ func (s *AntigravityGatewayService) buildAntigravityCompatGeminiBody(
 		if err != nil {
 			return nil, err
 		}
+		body, err = configureAntigravityCompatToolChoice(body, claudeBody)
+		if err != nil {
+			return nil, err
+		}
 		body = ensureGeminiFunctionCallThoughtSignatures(body)
 		body, err = injectIdentityPatchToGeminiRequest(body)
 		if err != nil {
@@ -341,6 +345,76 @@ func (s *AntigravityGatewayService) buildAntigravityCompatGeminiBody(
 	options := s.getClaudeTransformOptions(ctx)
 	options.EnableIdentityPatch = true
 	return antigravity.TransformClaudeToGeminiWithOptions(claudeRequest, projectID, mappedModel, options)
+}
+
+// OpenAI tool_choice survives the Responses/Anthropic conversion, but the
+// Gemini converter does not carry it over. In particular, an absent tool list
+// must explicitly disable function calling: agent-shaped history can otherwise
+// elicit a MALFORMED_FUNCTION_CALL even though no functions are available.
+func configureAntigravityCompatToolChoice(body, claudeBody []byte) ([]byte, error) {
+	var request map[string]any
+	if err := json.Unmarshal(body, &request); err != nil {
+		return nil, err
+	}
+	var claude struct {
+		ToolChoice struct {
+			Type string `json:"type"`
+			Name string `json:"name"`
+		} `json:"tool_choice"`
+	}
+	if err := json.Unmarshal(claudeBody, &claude); err != nil {
+		return nil, err
+	}
+	tools, _ := request["tools"].([]any)
+	functions := make(map[string]bool)
+	for _, rawTool := range tools {
+		tool, _ := rawTool.(map[string]any)
+		declarations, _ := tool["functionDeclarations"].([]any)
+		for _, rawDeclaration := range declarations {
+			declaration, _ := rawDeclaration.(map[string]any)
+			if name, _ := declaration["name"].(string); name != "" {
+				functions[name] = true
+			}
+		}
+	}
+	config := map[string]any{}
+	switch claude.ToolChoice.Type {
+	case "none":
+		config["mode"] = "NONE"
+		// NONE disables function calling; remove built-ins as well so an
+		// explicit OpenAI no-tools request cannot still invoke Google search.
+		delete(request, "tools")
+	case "any", "tool":
+		if len(functions) == 0 {
+			return nil, errors.New("forced tool_choice requires function tools")
+		}
+		config["mode"] = "ANY"
+		if claude.ToolChoice.Type == "tool" {
+			if !functions[claude.ToolChoice.Name] {
+				return nil, errors.New("tool_choice names an unavailable function")
+			}
+			config["allowedFunctionNames"] = []string{claude.ToolChoice.Name}
+		}
+	case "", "auto":
+		if len(tools) == 0 {
+			config["mode"] = "NONE"
+		} else if len(functions) > 0 {
+			// Match the native Antigravity adapter: allow text or schema-
+			// validated function calls without forcing a tool invocation.
+			config["mode"] = "VALIDATED"
+		} else {
+			return body, nil // Preserve the built-in-only request behavior.
+		}
+	default:
+		return nil, errors.New("unsupported tool_choice")
+	}
+	toolConfig, _ := request["toolConfig"].(map[string]any)
+	if toolConfig == nil {
+		toolConfig = make(map[string]any)
+	}
+	toolConfig["functionCallingConfig"] = config
+	request["toolConfig"] = toolConfig
+	return json.Marshal(request)
 }
 
 // enableMixedGeminiToolInvocations reconciles Antigravity v1internal tool payloads.
@@ -649,6 +723,9 @@ func (s *AntigravityGatewayService) handleResponsesNonStreamingFromAntigravity(
 }
 
 func (s *AntigravityGatewayService) mapAntigravityCompatCollectionError(c *gin.Context, err error) error {
+	if errors.Is(err, errAntigravityMalformedFunctionCall) {
+		return s.writeAntigravityCompatError(c, http.StatusBadGateway, "upstream_error", errAntigravityMalformedFunctionCall.Error())
+	}
 	var failoverError *UpstreamFailoverError
 	if errors.As(err, &failoverError) {
 		return err

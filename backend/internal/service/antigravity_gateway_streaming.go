@@ -763,6 +763,8 @@ func (s *AntigravityGatewayService) writeGoogleError(c *gin.Context, status int,
 
 // collectClaudeStreamResponse 收集上游流式响应，转换为 Claude 非流式格式返回
 // 用于处理客户端非流式请求但上游只支持流式的情况
+var errAntigravityMalformedFunctionCall = errors.New("upstream MALFORMED_FUNCTION_CALL")
+
 func (s *AntigravityGatewayService) collectClaudeStreamResponse(c *gin.Context, resp *http.Response, startTime time.Time, originalModel string) ([]byte, *antigravityStreamResult, error) {
 	if upstreamResponseModelObserverFromContext(c) == nil {
 		beginUpstreamResponseModelObservation(c)
@@ -883,6 +885,9 @@ func (s *AntigravityGatewayService) collectClaudeStreamResponse(c *gin.Context, 
 			}
 
 			last = parsed
+			if extractGeminiFinishReason(parsed) == "MALFORMED_FUNCTION_CALL" {
+				return nil, nil, errAntigravityMalformedFunctionCall
+			}
 
 			// 保留最后一个有 parts 的响应，并收集所有 parts
 			parts := extractGeminiParts(parsed)

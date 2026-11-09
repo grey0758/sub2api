@@ -268,11 +268,6 @@ func (p *NonStreamingProcessor) buildResponse(geminiResp *GeminiResponse, respon
 		finishReason = geminiResp.Candidates[0].FinishReason
 		if finishReason == "MALFORMED_FUNCTION_CALL" {
 			log.Printf("[Antigravity] MALFORMED_FUNCTION_CALL detected in response for model %s", originalModel)
-			if geminiResp.Candidates[0].Content != nil {
-				if b, err := json.Marshal(geminiResp.Candidates[0].Content); err == nil {
-					log.Printf("[Antigravity] Malformed content: %s", string(b))
-				}
-			}
 		}
 	}
 

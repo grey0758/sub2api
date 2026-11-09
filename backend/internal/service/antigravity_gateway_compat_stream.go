@@ -143,7 +143,7 @@ func newAntigravityCompatStreamSession(
 
 func (s *antigravityCompatStreamSession) consume(line string) {
 	claudeEvents := s.processor.ProcessLine(strings.TrimRight(line, "\r\n"))
-	if len(claudeEvents) == 0 {
+	if len(claudeEvents) == 0 || s.processor.MalformedFunctionCall() {
 		return
 	}
 	s.consumeClaudeEvents(claudeEvents)
@@ -358,6 +358,15 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStreamWithKeepaliveIn
 			resetAntigravityCompatTimer(timeoutTimer, timeout)
 			s.observeAntigravityGeminiSSELine(c, event.line)
 			session.consume(event.line)
+			if session.processor.MalformedFunctionCall() {
+				// Never convert an upstream generation failure into completed or
+				// blindly retry a request that may already have emitted a tool.
+				if session.preContentKeepaliveSent || session.meaningfulData {
+					writeAntigravityCompatStreamError(c, adapter, writer, errAntigravityMalformedFunctionCall.Error())
+					return session.collectResult(false), errAntigravityMalformedFunctionCall
+				}
+				return nil, s.writeAntigravityCompatError(c, http.StatusBadGateway, "upstream_error", errAntigravityMalformedFunctionCall.Error())
+			}
 
 		case <-timeoutCh:
 			if writer.Disconnected() {
