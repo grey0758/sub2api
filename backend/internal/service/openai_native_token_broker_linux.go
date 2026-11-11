@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-// Opt-in trial account; no access/refresh tokens are stored in its credentials.
+// Opt-in native Codex account; no access/refresh tokens are stored in its credentials.
 // The socket and its owner are process configuration, never tenant-controlled.
 func (a *Account) UsesNativeCodexTokenBroker() bool {
 	if a == nil || a.Platform != PlatformOpenAI || a.Type != AccountTypeOAuth {
@@ -44,7 +44,7 @@ func readNativeCodexTokenLease(ctx context.Context, expectedAccountID string) (*
 		return nil, errors.New(failure)
 	}
 	defer conn.Close()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
 		deadline = d
 	}
@@ -93,7 +93,7 @@ func readNativeCodexTokenLease(ctx context.Context, expectedAccountID string) (*
 }
 
 func getNativeCodexAccessToken(ctx context.Context, account *Account) (string, error) {
-	if account.GetCredential("refresh_token") != "" || account.GetCredential("access_token") != "" || account.IsShadow() {
+	if account.GetCredential("refresh_token") != "" || account.GetCredential("access_token") != "" || account.GetCredential("id_token") != "" || account.IsShadow() {
 		return "", errors.New("native Codex broker account must not contain local tokens or shadow credentials")
 	}
 	lease, err := readNativeCodexTokenLease(ctx, account.GetChatGPTAccountID())

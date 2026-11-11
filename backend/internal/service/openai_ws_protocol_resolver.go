@@ -42,6 +42,9 @@ func (r *defaultOpenAIWSProtocolResolver) Resolve(account *Account) OpenAIWSProt
 	if !account.IsOpenAI() {
 		return openAIWSHTTPDecision("platform_not_openai")
 	}
+	if account.UsesNativeCodexTokenBroker() {
+		return openAIWSHTTPDecision("native_codex_broker_http_responses")
+	}
 	if account.IsOpenAIWSForceHTTPEnabled() {
 		return openAIWSHTTPDecision("account_force_http")
 	}

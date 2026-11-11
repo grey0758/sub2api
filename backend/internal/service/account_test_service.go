@@ -847,6 +847,13 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		// Agent Identity signs each request and does not retain the OAuth token.
 		if !credentialAccount.IsOpenAIAgentIdentity() {
 			authToken = credentialAccount.GetOpenAIAccessToken()
+			if credentialAccount.UsesNativeCodexTokenBroker() {
+				var err error
+				authToken, err = getNativeCodexAccessToken(ctx, credentialAccount)
+				if err != nil {
+					return s.sendErrorAndEnd(c, "Native Codex token broker unavailable")
+				}
+			}
 		}
 		if authToken == "" && !credentialAccount.IsOpenAIAgentIdentity() {
 			return s.sendErrorAndEnd(c, "No access token available")
@@ -2204,6 +2211,13 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 		isOAuth = true
 		if !credentialAccount.IsOpenAIAgentIdentity() {
 			authToken = credentialAccount.GetOpenAIAccessToken()
+			if credentialAccount.UsesNativeCodexTokenBroker() {
+				var err error
+				authToken, err = getNativeCodexAccessToken(ctx, credentialAccount)
+				if err != nil {
+					return s.sendErrorAndEnd(c, "Native Codex token broker unavailable")
+				}
+			}
 		}
 		if authToken == "" && !credentialAccount.IsOpenAIAgentIdentity() {
 			return s.sendErrorAndEnd(c, "No access token available")
@@ -3141,6 +3155,13 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 	authToken := ""
 	if !credentialAccount.IsOpenAIAgentIdentity() {
 		authToken = credentialAccount.GetOpenAIAccessToken()
+		if credentialAccount.UsesNativeCodexTokenBroker() {
+			var err error
+			authToken, err = getNativeCodexAccessToken(ctx, credentialAccount)
+			if err != nil {
+				return s.sendErrorAndEnd(c, "Native Codex token broker unavailable")
+			}
+		}
 	}
 	if authToken == "" && !credentialAccount.IsOpenAIAgentIdentity() {
 		return s.sendErrorAndEnd(c, "No access token available")
