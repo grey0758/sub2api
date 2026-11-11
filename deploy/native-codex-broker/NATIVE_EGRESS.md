@@ -25,8 +25,10 @@ identity mappings through the supported admin API. Catalogue expires after1hour;
 an expired native catalogue blocks dispatch. Failed refresh retains previous
 policy and does not enable another source. Group7 model discovery is pinned to
 account256 with scheduler fallback disabled. Both public models and native
-manifest use the official visible model/list result. The raw ChatGPT backend
-manifest is a different capability source and may contain hidden entries.
+manifest use the intersection of official visible model/list and the native
+account backend manifest. This excludes hidden backend entries and obsolete
+client entries: the pinned client lists gpt-5.5 but a fresh native request returns
+400/model_not_found for this ChatGPT account. The verified intersection is seven.
 No wildcard aliases or synthetic advertised models are added.
 
 SSE bytes and full-history tool outputs pass through the same bounded transport.

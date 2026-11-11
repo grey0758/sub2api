@@ -2,10 +2,12 @@
 """Read native model/list and identity through the pinned official app-server."""
 import base64
 import fcntl
+import http.client
 import json
 import os
 from pathlib import Path
 import select
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -13,6 +15,14 @@ import time
 
 CONFIG=Path('/etc/sub2api-native-codex/binding.json')
 STATE=Path('/home/codex005/.local/state/sub2api-native-egress')
+
+
+def supported_model_ids(rows, backend_rows):
+    visible={x['model']for x in rows if not x.get('hidden',False) and x.get('model','').startswith('gpt-')}
+    available={x['slug']for x in backend_rows if isinstance(x.get('slug'),str)}
+    ids=sorted(visible & available)
+    if not ids:raise ValueError('native account has no supported visible models')
+    return ids,sorted(visible),sorted(available)
 
 
 def catalogue(config):
@@ -45,11 +55,18 @@ def catalogue(config):
             value=rpc(mid,'model/list',{'limit':100,'cursor':cursor,'includeHidden':False});rows.extend(value.get('data',[]));cursor=value.get('nextCursor')
             if not cursor:break
         if not rows or cursor:raise ValueError('native models incomplete')
-        ids=sorted({x['model']for x in rows if not x.get('hidden',False) and x.get('model','').startswith('gpt-')})
-        if not ids or any(not isinstance(x,str)or len(x)>128 for x in ids):raise ValueError('native models invalid')
         ua=initialize['userAgent']
         if not ua.startswith('us003_outer_tool_relay/'+version+' ')or len(ua)>512 or any(ord(c)<32 or ord(c)>126 for c in ua):raise ValueError('native user agent invalid')
-        return {'source':'codex-app-server','account_id':config['account_id'],'user_id':config['user_id'],'version':version,'user_agent':ua,'model_ids':ids,'models':rows,'updated_at':int(time.time()),'expires_at':int(time.time())+3600}
+        connection=http.client.HTTPSConnection('chatgpt.com',timeout=30,context=ssl.create_default_context())
+        try:
+            connection.request('GET','/backend-api/codex/models?client_version='+version,headers={'Authorization':'Bearer '+status['authToken'],'chatgpt-account-id':config['account_id'],'User-Agent':ua,'originator':'us003_outer_tool_relay','Accept':'application/json','Accept-Encoding':'identity','Connection':'close'})
+            response=connection.getresponse();raw=response.read(1024*1024+1)
+            if response.status!=200 or len(raw)>1024*1024:raise ValueError('native backend catalogue unavailable')
+            backend_rows=json.loads(raw)['models']
+        finally:connection.close()
+        ids,visible,available=supported_model_ids(rows,backend_rows)
+        if any(len(x)>128 for x in ids):raise ValueError('native models invalid')
+        return {'source':'codex-app-server','capability_source':'official visible model/list intersected with native account backend manifest','account_id':config['account_id'],'user_id':config['user_id'],'version':version,'user_agent':ua,'model_ids':ids,'client_visible_model_ids':visible,'backend_model_ids':available,'models':rows,'updated_at':int(time.time()),'expires_at':int(time.time())+3600}
     finally:
         proc.stdin.close()
         try:proc.wait(timeout=3)
