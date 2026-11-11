@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Root-only local UNIX broker; SSH key can execute only forced_lease.py.
+"""Application-UID-only local UNIX broker; SSH key can execute only forced_lease.py.
 
 No tokens are cached or written. The application sees only a socket, never the
 SSH key or native auth files. stdout/stderr of SSH stay in process memory.
@@ -16,6 +16,8 @@ import threading
 ROOT = Path('/etc/sub2api-native-codex')
 RUNTIME = Path('/run/sub2api-native-codex')
 LIMIT = threading.BoundedSemaphore(2)
+CLIENT_UID = 1000
+CLIENT_GID = 1000
 
 
 class Handler(socketserver.BaseRequestHandler):
@@ -23,7 +25,7 @@ class Handler(socketserver.BaseRequestHandler):
         self.request.settimeout(30)
         try:
             _, uid, _ = struct.unpack('3i', self.request.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
-            if uid != 0:
+            if uid != CLIENT_UID:
                 raise ValueError('peer denied')
             data = bytearray()
             while b'\n' not in data:
@@ -71,9 +73,12 @@ class Server(socketserver.ThreadingUnixStreamServer):
 
 if __name__ == '__main__':
     os.umask(0o077)
-    RUNTIME.mkdir(mode=0o700, parents=True, exist_ok=True)
+    RUNTIME.mkdir(mode=0o750, parents=True, exist_ok=True)
+    os.chown(RUNTIME, 0, CLIENT_GID)
+    os.chmod(RUNTIME, 0o750)
     path = RUNTIME / 'token.sock'
     path.unlink(missing_ok=True)  # RuntimeDirectory belongs only to this service.
     with Server(str(path), Handler) as server:
-        os.chmod(path, 0o600)
+        os.chown(path, 0, CLIENT_GID)
+        os.chmod(path, 0o660)
         server.serve_forever(poll_interval=.5)

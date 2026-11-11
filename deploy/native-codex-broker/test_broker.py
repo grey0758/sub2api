@@ -15,7 +15,7 @@ import socket_bridge
 
 
 class Request:
-    def __init__(self,body,uid=0):self.body=body;self.uid=uid;self.output=b''
+    def __init__(self,body,uid=1000):self.body=body;self.uid=uid;self.output=b''
     def settimeout(self,v):pass
     def getsockopt(self,*args):return struct.pack('3i',123,self.uid,0)
     def recv(self,n):v=self.body;self.body=b'';return v
@@ -45,7 +45,7 @@ class Tests(unittest.TestCase):
         self.assertNotIn('shell',invoke.call_args.kwargs)
 
     def test_deny_other_local_uid(self):
-        output,invoke=self.handle(Request(b'',uid=1000))
+        output,invoke=self.handle(Request(b'',uid=1001))
         self.assertEqual(output,{'error':'lease_unavailable'});invoke.assert_not_called()
 
     def test_deny_wrong_binding_without_ssh(self):

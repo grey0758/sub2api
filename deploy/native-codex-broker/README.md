@@ -19,8 +19,8 @@ does not call OAuth or read/share refresh tokens. A near-expiry lease fails
 closed if the official lifecycle cannot provide a current access token.
 
 On the consumer host, `socket_bridge.py` uses this dedicated SSH key with a
-pinned verified host key and strict checking. It serves only local UID0 through
-mode0600 `/run/sub2api-native-codex/token.sock` inside a mode0700 directory.
+pinned verified host key and strict checking. It serves only the application UID1000 through
+mode0660 root:1000 `/run/sub2api-native-codex/token.sock` inside a mode0750 root:1000 directory.
 The systemd service has no token cache and persists no lease contents. Bind
 only the runtime directory read-only into the Sub2API container. Keep its key
 and `/etc/sub2api-native-codex` outside the container.
@@ -32,7 +32,7 @@ OPENAI_NATIVE_TOKEN_BROKER_SOCKET=/run/sub2api-native-codex/token.sock
 OPENAI_NATIVE_TOKEN_BROKER_UID=0
 ```
 
-The consumer checks server UID, account/user/expiry and token claim consistency
+The consumer checks server UID0, account/user/expiry and token claim consistency
 before use. It bypasses Redis token cache and all independent refresh paths,
 rejects local token credentials and credential shadows, and never falls back.
 No Authorization headers or leases should be logged. OAuth access tokens keep
@@ -48,3 +48,7 @@ and the Go native broker/HTTP/token provider/refresher tests before release.
 UI account connection tests obtain tokens through the same broker. Background
 and manual Sub2API OAuth refreshes remain disabled for these accounts. Other
 providers and ordinary OAuth accounts retain their existing behavior.
+
+The production entrypoint drops the app to UID/GID1000 even when Docker Config.User
+is empty. Preserve that identity; the key-reading broker stays UID0. RuntimeDirectory
+is retained across broker restarts so existing container mounts keep the same inode.
