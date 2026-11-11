@@ -53,6 +53,12 @@ class Tests(unittest.TestCase):
         missing,_=self.handle(Request(b'{"account_id":"account-test","include_client_identity":true}\n'))
         self.assertEqual(missing,{'error':'lease_unavailable'})
 
+    def test_bridge_identity_negotiated_without_changing_legacy_lease(self):
+        lease=dict(self.lease,user_agent='us003_outer_tool_relay/0.163.0 (synthetic)')
+        output,invoke=self.handle(Request(b'{"account_id":"account-test","include_client_identity":true,"include_bridge_identity":true}\n'),lease)
+        self.assertEqual(output,lease)
+        self.assertEqual(json.loads(invoke.call_args.kwargs['input']),{'account_id':'account-test','include_bridge_identity':True})
+
     def test_deny_other_local_uid(self):
         output,invoke=self.handle(Request(b'',uid=1001))
         self.assertEqual(output,{'error':'lease_unavailable'});invoke.assert_not_called()

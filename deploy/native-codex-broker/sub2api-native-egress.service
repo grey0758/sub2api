@@ -1,0 +1,22 @@
+[Unit]
+Description=Sub2API native Codex HTTP egress over restricted SSH
+After=network-online.target sub2api-native-codex.service
+Requires=sub2api-native-codex.service
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -B /opt/sub2api-native-codex/http_bridge.py
+User=root
+Group=1000
+UMask=0077
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/run/sub2api-native-codex
+StandardOutput=null
+StandardError=null
+[Install]
+WantedBy=multi-user.target

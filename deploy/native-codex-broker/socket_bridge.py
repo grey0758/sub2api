@@ -37,7 +37,7 @@ class Handler(socketserver.BaseRequestHandler):
                     raise ValueError('request too large')
             request = json.loads(data.split(b'\n', 1)[0])
             binding = json.loads((ROOT / 'binding.json').read_text())
-            if set(request) not in ({'account_id'}, {'account_id','include_client_identity'}) or request['account_id'] != binding['account_id'] or ('include_client_identity' in request and request['include_client_identity'] is not True):
+            if set(request) not in ({'account_id'}, {'account_id','include_client_identity'}, {'account_id','include_client_identity','include_bridge_identity'}) or request['account_id'] != binding['account_id'] or ('include_client_identity' in request and request['include_client_identity'] is not True) or ('include_bridge_identity' in request and request['include_bridge_identity'] is not True):
                 raise ValueError('identity denied')
             if not LIMIT.acquire(timeout=3):
                 raise ValueError('busy')
@@ -48,7 +48,7 @@ class Handler(socketserver.BaseRequestHandler):
                     '-o', 'UserKnownHostsFile=' + str(ROOT / 'known_hosts'), '-o', 'ConnectTimeout=5',
                     '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=2',
                     'codex005@' + binding['host'], 'lease'],
-                    input=json.dumps({'account_id':request['account_id']}).encode() + b'\n', capture_output=True, timeout=22)
+                    input=json.dumps({'account_id':request['account_id'], **({'include_bridge_identity':True} if request.get('include_bridge_identity') else {})}).encode() + b'\n', capture_output=True, timeout=22)
             finally:
                 LIMIT.release()
             if result.returncode or len(result.stdout) > 32768:
@@ -60,7 +60,7 @@ class Handler(socketserver.BaseRequestHandler):
             if any(lease[k] != binding[k] for k in ('account_id','user_id')):
                 raise ValueError('binding changed')
             if request.get('include_client_identity'):
-                if not isinstance(lease.get('user_agent'), str) or not lease['user_agent'].startswith('codex_cli_rs/'):
+                if not isinstance(lease.get('user_agent'), str) or not lease['user_agent'].startswith(('codex_cli_rs/','us003_outer_tool_relay/')):
                     raise ValueError('native identity unavailable')
             else:
                 lease.pop('user_agent',None)  # Backward compatible old app contract.

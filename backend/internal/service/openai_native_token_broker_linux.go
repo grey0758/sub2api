@@ -64,6 +64,7 @@ func readNativeCodexTokenLease(ctx context.Context, expectedAccountID string) (*
 	request := map[string]any{"account_id": expectedAccountID}
 	if ctx.Value(nativeCodexIdentityContextKey{}) != nil {
 		request["include_client_identity"] = true
+		request["include_bridge_identity"] = true
 	}
 	if err = json.NewEncoder(conn).Encode(request); err != nil {
 		return nil, errors.New(failure)

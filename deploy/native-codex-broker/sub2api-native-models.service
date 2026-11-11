@@ -1,0 +1,11 @@
+[Unit]
+Description=Synchronize Sub2API GPT models from official codex005 model/list
+After=network-online.target sub2api-native-codex.service
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -B /opt/sub2api-native-codex/sync_models.py
+User=root
+UMask=0077
+TimeoutStartSec=240
+StandardOutput=null
+StandardError=null

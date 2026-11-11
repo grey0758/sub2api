@@ -17,7 +17,7 @@ class BrokerError(Exception):
     pass
 
 
-def native_access(binary):
+def native_access(binary, bridge_identity=False):
     proc = subprocess.Popen(
         [binary, "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL, bufsize=0,
@@ -51,9 +51,11 @@ def native_access(binary):
         version = subprocess.check_output([binary, "--version"], text=True, timeout=5).strip().split()[-1]
         if not version or len(version) > 64:
             raise BrokerError("native_version_invalid")
-        initialized = rpc(1, "initialize", {"clientInfo": {"name": "codex_cli_rs", "version": version}})
+        client_name = "us003_outer_tool_relay" if bridge_identity else "codex_cli_rs"
+        client_version = "0.1" if bridge_identity else version
+        initialized = rpc(1, "initialize", {"clientInfo": {"name": client_name, "version": client_version}})
         user_agent = initialized.get("userAgent", "")
-        if not user_agent.startswith("codex_cli_rs/" + version + " ") or len(user_agent) > 512 or any(ord(c) < 32 or ord(c) > 126 for c in user_agent):
+        if not user_agent.startswith(client_name + "/" + version + " ") or len(user_agent) > 512 or any(ord(c) < 32 or ord(c) > 126 for c in user_agent):
             raise BrokerError("native_identity_invalid")
         proc.stdin.write(b'{"method":"initialized"}\n')
         result = rpc(2, "getAuthStatus", {"includeToken": True, "refreshToken": False})

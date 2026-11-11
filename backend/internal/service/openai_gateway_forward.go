@@ -21,7 +21,10 @@ import (
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
 	if account.UsesNativeCodexTokenBroker() {
-		ctx = context.WithValue(ctx, nativeCodexIdentityContextKey{}, &nativeCodexRequestIdentity{})
+		ctx = context.WithValue(ctx, nativeCodexIdentityContextKey{}, &nativeCodexRequestIdentity{originalBody: append([]byte(nil), body...)})
+	}
+	if !nativeCodexSourceAllowed(account, gjson.GetBytes(body, "model").String()) {
+		return nil, errors.New("GPT requests require the configured native Codex account")
 	}
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
