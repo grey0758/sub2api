@@ -44,6 +44,15 @@ class Tests(unittest.TestCase):
         self.assertIn('StrictHostKeyChecking=yes',args)
         self.assertNotIn('shell',invoke.call_args.kwargs)
 
+    def test_identity_is_negotiated_and_legacy_contract_retained(self):
+        lease=dict(self.lease,user_agent='codex_cli_rs/0.163.0 (synthetic)')
+        legacy,_=self.handle(Request(b'{"account_id":"account-test"}\n'),lease)
+        self.assertEqual(legacy,self.lease)
+        modern,_=self.handle(Request(b'{"account_id":"account-test","include_client_identity":true}\n'),lease)
+        self.assertEqual(modern,lease)
+        missing,_=self.handle(Request(b'{"account_id":"account-test","include_client_identity":true}\n'))
+        self.assertEqual(missing,{'error':'lease_unavailable'})
+
     def test_deny_other_local_uid(self):
         output,invoke=self.handle(Request(b'',uid=1001))
         self.assertEqual(output,{'error':'lease_unavailable'});invoke.assert_not_called()

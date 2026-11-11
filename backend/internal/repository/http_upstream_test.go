@@ -1045,3 +1045,24 @@ func TestHTTPUpstreamPublicHostsOnlyValidatesEveryRedirectHop(t *testing.T) {
 	require.NoError(t, client.CheckRedirect(publicHop, via))
 	require.Error(t, client.CheckRedirect(publicHop, make([]*http.Request, 10)), "redirect chain stays capped")
 }
+
+func TestNativeCodexHTTPDoesNotInventCompressionAndKeepsOtherProfiles(t *testing.T) {
+	received := make(chan string, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received <- r.Header.Get("Accept-Encoding")
+		w.WriteHeader(200)
+	}))
+	defer server.Close()
+	svc := NewHTTPUpstream(nil)
+	for _, tc := range []struct {
+		profile service.HTTPUpstreamProfile
+		want    string
+	}{{service.HTTPUpstreamProfileNativeCodex, ""}, {service.HTTPUpstreamProfileDefault, "gzip"}} {
+		request, err := http.NewRequestWithContext(service.WithHTTPUpstreamProfile(t.Context(), tc.profile), "POST", server.URL, strings.NewReader("{}"))
+		require.NoError(t, err)
+		response, err := svc.Do(request, "", 991, 1)
+		require.NoError(t, err)
+		response.Body.Close()
+		require.Equal(t, tc.want, <-received)
+	}
+}

@@ -586,7 +586,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	if c != nil && c.Request != nil {
 		for key, values := range c.Request.Header {
 			lower := strings.ToLower(strings.TrimSpace(key))
-			if !isOpenAIPassthroughAllowedRequestHeader(lower, allowTimeoutHeaders) {
+			if !isOpenAIPassthroughAllowedRequestHeader(lower, allowTimeoutHeaders) && !(account.UsesNativeCodexTokenBroker() && nativeCodexHTTPHeaders[lower]) {
 				continue
 			}
 			for _, v := range values {
@@ -697,6 +697,11 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	// 保证不被覆盖丢失）。
 	applyOpenAICodexBetaFeatures(c, account, req.Header)
 	setOpenAICodexRoutingHintFromBody(req.Header, account, body)
+	if account.UsesNativeCodexTokenBroker() {
+		if err := applyNativeCodexHTTPRequest(ctx, req, body); err != nil {
+			return nil, err
+		}
+	}
 	logOpenAIRoutingDiagnosticsFromBody(ctx, account, "http_passthrough", req.Header, body, "not_applicable")
 
 	if err := applyMappedGPT55LiteCompatibility(req, account, body); err != nil {

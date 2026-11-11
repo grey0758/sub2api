@@ -37,7 +37,7 @@ class Handler(socketserver.BaseRequestHandler):
                     raise ValueError('request too large')
             request = json.loads(data.split(b'\n', 1)[0])
             binding = json.loads((ROOT / 'binding.json').read_text())
-            if set(request) != {'account_id'} or request['account_id'] != binding['account_id']:
+            if set(request) not in ({'account_id'}, {'account_id','include_client_identity'}) or request['account_id'] != binding['account_id'] or ('include_client_identity' in request and request['include_client_identity'] is not True):
                 raise ValueError('identity denied')
             if not LIMIT.acquire(timeout=3):
                 raise ValueError('busy')
@@ -48,16 +48,22 @@ class Handler(socketserver.BaseRequestHandler):
                     '-o', 'UserKnownHostsFile=' + str(ROOT / 'known_hosts'), '-o', 'ConnectTimeout=5',
                     '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=2',
                     'codex005@' + binding['host'], 'lease'],
-                    input=json.dumps(request).encode() + b'\n', capture_output=True, timeout=22)
+                    input=json.dumps({'account_id':request['account_id']}).encode() + b'\n', capture_output=True, timeout=22)
             finally:
                 LIMIT.release()
             if result.returncode or len(result.stdout) > 32768:
                 raise ValueError('native lease failed')
             lease = json.loads(result.stdout)
-            if set(lease) != {'source','access_token','account_id','user_id','expires_at'}:
+            fields = {'source','access_token','account_id','user_id','expires_at'}
+            if set(lease) not in (fields, fields | {'user_agent'}):
                 raise ValueError('invalid lease')
             if any(lease[k] != binding[k] for k in ('account_id','user_id')):
                 raise ValueError('binding changed')
+            if request.get('include_client_identity'):
+                if not isinstance(lease.get('user_agent'), str) or not lease['user_agent'].startswith('codex_cli_rs/'):
+                    raise ValueError('native identity unavailable')
+            else:
+                lease.pop('user_agent',None)  # Backward compatible old app contract.
             self.request.sendall(json.dumps(lease).encode() + b'\n')
         except Exception:
             try:

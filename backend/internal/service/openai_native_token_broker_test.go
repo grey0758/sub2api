@@ -27,6 +27,7 @@ func nativeBrokerTestLease() map[string]any {
 	exp := time.Now().Add(time.Hour).Unix()
 	claims, _ := json.Marshal(map[string]any{"exp": exp, "https://api.openai.com/auth": map[string]string{"chatgpt_account_id": "account-synthetic", "chatgpt_user_id": "user-synthetic"}})
 	return map[string]any{"source": "codex-app-server", "account_id": "account-synthetic", "user_id": "user-synthetic", "expires_at": exp,
+		"user_agent":   "codex_cli_rs/0.163.0 (Ubuntu 26.4.0; x86_64) unknown (codex_cli_rs; 0.163.0)",
 		"access_token": "e30." + base64.RawURLEncoding.EncodeToString(claims) + ".synthetic"}
 }
 
@@ -44,7 +45,7 @@ func nativeBrokerFixture(t *testing.T, lease map[string]any) {
 			return
 		}
 		defer conn.Close()
-		var request map[string]string
+		var request map[string]any
 		if json.NewDecoder(conn).Decode(&request) == nil {
 			_ = json.NewEncoder(conn).Encode(lease)
 		}

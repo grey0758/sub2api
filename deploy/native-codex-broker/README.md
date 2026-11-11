@@ -52,3 +52,32 @@ providers and ordinary OAuth accounts retain their existing behavior.
 The production entrypoint drops the app to UID/GID1000 even when Docker Config.User
 is empty. Preserve that identity; the key-reading broker stays UID0. RuntimeDirectory
 is retained across broker restarts so existing container mounts keep the same inode.
+
+### Native HTTP identity and packet acceptance
+
+The HTTP forwarding path negotiates `include_client_identity=true` with the
+socket broker. Official pinned Codex `initialize` supplies `user_agent` alongside
+the access-only lease, using the CLI client name and the binary's actual version.
+The broker retains its five-field response for older consumers. Deploy the
+backward-compatible socket bridge before the native RPC reader and application.
+A forwarding request fails closed if its authenticated native identity is absent
+or invalid. Global latest-version settings do not relabel this account.
+
+Native HTTP preserves supplied Responses Lite instructions/tool declarations in
+`input`, without adding synthetic top-level instructions. Full-history tool call
+IDs remain intact. The request forwards native hyphenated session/thread/request
+headers, and scopes all native UUID aliases consistently per account and API key.
+It omits synthetic version/conversation/routing headers and disables automatic
+compression in an independent HTTP/1.1 pool. Other accounts retain their existing
+identity, namespace and transport policies. Generic API input does not become a
+full native Codex prompt unless the caller supplies that content.
+
+Optional synthetic-only production audit: `OPENAI_NATIVE_PACKET_AUDIT_DIR` names
+an existing private0700 application-owned directory. A short-lived `control.json`
+selects `account_id`, a random `marker` of at least32 characters present in the
+synthetic body, and `expires_at` (at most30minutes ahead). At most16 attempts are
+recorded; actual transport-written headers and TLS response metadata accompany
+the serialized body. Authentication headers are hashed. Remove the control file
+after acceptance. Leave the environment unset for no audit. Never capture or
+replay customer requests. Go/Rust TLS and header-order equality are not claimed;
+a TLS-terminating observer owns the final upstream TLS during isolated tests.

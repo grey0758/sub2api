@@ -112,6 +112,7 @@ var errUpstreamClientLimitReached = errors.New("upstream client cache limit reac
 // poolSettings 连接池配置参数
 // 封装 Transport 所需的各项连接池参数
 type poolSettings struct {
+	disableCompression    bool
 	maxIdleConns          int           // 最大空闲连接总数
 	maxIdleConnsPerHost   int           // 每主机最大空闲连接数
 	maxConnsPerHost       int           // 每主机最大连接数（含活跃）
@@ -738,6 +739,9 @@ func (s *httpUpstreamService) getClientEntry(proxyURL string, accountID int64, a
 	settings = s.applyProfilePoolSettings(settings, profile)
 	// 构建缓存键（根据隔离策略不同）
 	cacheKey := buildCacheKey(isolation, proxyKey, accountID, protocolMode)
+	if profile == service.HTTPUpstreamProfileNativeCodex {
+		cacheKey = "native-codex:" + cacheKey
+	}
 	// 构建连接池配置键（用于检测配置变更）
 	poolKey := buildPoolKey(settings, protocolMode)
 
@@ -981,7 +985,8 @@ func (s *httpUpstreamService) resolvePoolSettings(isolation string, accountConcu
 
 func (s *httpUpstreamService) applyProfilePoolSettings(settings poolSettings, profile service.HTTPUpstreamProfile) poolSettings {
 	switch profile {
-	case service.HTTPUpstreamProfileOpenAI:
+	case service.HTTPUpstreamProfileOpenAI, service.HTTPUpstreamProfileNativeCodex:
+		settings.disableCompression = profile == service.HTTPUpstreamProfileNativeCodex
 		settings.responseHeaderTimeout = 0
 		if s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIResponseHeaderTimeout > 0 {
 			settings.responseHeaderTimeout = time.Duration(s.cfg.Gateway.OpenAIResponseHeaderTimeout) * time.Second
@@ -1001,12 +1006,13 @@ func (s *httpUpstreamService) applyProfilePoolSettings(settings poolSettings, pr
 // buildPoolKey 构建连接池配置键，用于检测连接池配置变更。
 func buildPoolKey(settings poolSettings, protocolMode string) string {
 	base := fmt.Sprintf(
-		"idle:%d|idle_host:%d|max:%d|idle_timeout:%s|header_timeout:%s",
+		"idle:%d|idle_host:%d|max:%d|idle_timeout:%s|header_timeout:%s|no_compression:%t",
 		settings.maxIdleConns,
 		settings.maxIdleConnsPerHost,
 		settings.maxConnsPerHost,
 		settings.idleConnTimeout,
 		settings.responseHeaderTimeout,
+		settings.disableCompression,
 	)
 	if protocolMode == "" || protocolMode == upstreamProtocolModeDefault {
 		return base
@@ -1077,6 +1083,9 @@ func (s *httpUpstreamService) resolveProtocolMode(profile service.HTTPUpstreamPr
 	}
 	if profile == service.HTTPUpstreamProfileGrok {
 		return upstreamProtocolModeGrok
+	}
+	if profile == service.HTTPUpstreamProfileNativeCodex {
+		return upstreamProtocolModeOpenAIH1
 	}
 	if profile != service.HTTPUpstreamProfileOpenAI {
 		return upstreamProtocolModeDefault
@@ -1391,6 +1400,7 @@ func newUpstreamDialer() *net.Dialer {
 //   - ResponseHeaderTimeout: 等待响应头超时（不影响流式传输）
 func buildUpstreamTransport(settings poolSettings, proxyURL *url.URL, protocolMode string) (*http.Transport, error) {
 	transport := &http.Transport{
+		DisableCompression:    settings.disableCompression,
 		DialContext:           newUpstreamDialer().DialContext,
 		TLSHandshakeTimeout:   defaultUpstreamTLSHandshakeTimeout,
 		MaxIdleConns:          settings.maxIdleConns,

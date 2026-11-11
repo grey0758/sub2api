@@ -48,7 +48,13 @@ def native_access(binary):
         raise BrokerError("native_rpc_timeout")
 
     try:
-        rpc(1, "initialize", {"clientInfo": {"name": "sub2api_native_token_broker", "version": "0.1"}})
+        version = subprocess.check_output([binary, "--version"], text=True, timeout=5).strip().split()[-1]
+        if not version or len(version) > 64:
+            raise BrokerError("native_version_invalid")
+        initialized = rpc(1, "initialize", {"clientInfo": {"name": "codex_cli_rs", "version": version}})
+        user_agent = initialized.get("userAgent", "")
+        if not user_agent.startswith("codex_cli_rs/" + version + " ") or len(user_agent) > 512 or any(ord(c) < 32 or ord(c) > 126 for c in user_agent):
+            raise BrokerError("native_identity_invalid")
         proc.stdin.write(b'{"method":"initialized"}\n')
         result = rpc(2, "getAuthStatus", {"includeToken": True, "refreshToken": False})
         if result.get("authMethod") != "chatgpt":
@@ -65,7 +71,7 @@ def native_access(binary):
         if not account or not isinstance(expiry, int) or expiry <= time.time() + 180:
             raise BrokerError("native_token_near_expiry")
         return {"source": "codex-app-server", "access_token": token,
-                "account_id": account, "user_id": user, "expires_at": expiry}
+                "account_id": account, "user_id": user, "expires_at": expiry, "user_agent": user_agent}
     except (ValueError, KeyError, TypeError) as exc:
         raise BrokerError("native_response_invalid") from exc
     finally:

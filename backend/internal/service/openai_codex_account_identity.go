@@ -96,6 +96,11 @@ func scopeCodexAccountIdentityValue(account *Account, apiKeyID int64, kind, raw 
 	if raw == "" || namespace == "" {
 		return raw
 	}
+	// Native HTTP uses the same UUID for several aliases (session/thread/cache).
+	// Scope the value once while preserving those equality relationships.
+	if account.UsesNativeCodexTokenBroker() {
+		kind = "native-id"
+	}
 	return deriveStableUUIDv4(fmt.Sprintf(
 		"sub2api:codex-account-identity:%s:user:%d:account:%s:kind:%s:value:%s",
 		codexAccountIdentityNamespaceVersion,
@@ -116,6 +121,7 @@ var codexAccountIdentityFields = []struct {
 	{name: "session-id", kind: "session"},
 	{name: "thread_id", kind: "thread"},
 	{name: "thread-id", kind: "thread"},
+	{name: "root_turn_id", kind: "turn"},
 	{name: "turn_id", kind: "turn"},
 	{name: "turn-id", kind: "turn"},
 	{name: "window_id", kind: "window"},
@@ -129,6 +135,9 @@ func applyCodexAccountIdentityFields(values map[string]any, account *Account, ap
 	}
 	changed := false
 	for _, field := range codexAccountIdentityFields {
+		if field.name == "root_turn_id" && !account.UsesNativeCodexTokenBroker() {
+			continue
+		}
 		raw, ok := values[field.name].(string)
 		if !ok || strings.TrimSpace(raw) == "" {
 			continue

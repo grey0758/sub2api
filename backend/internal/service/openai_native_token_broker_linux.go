@@ -30,6 +30,7 @@ type nativeCodexTokenLease struct {
 	UserID      string `json:"user_id"`
 	ExpiresAt   int64  `json:"expires_at"`
 	Source      string `json:"source"`
+	UserAgent   string `json:"user_agent,omitempty"`
 }
 
 func readNativeCodexTokenLease(ctx context.Context, expectedAccountID string) (*nativeCodexTokenLease, error) {
@@ -60,7 +61,11 @@ func readNativeCodexTokenLease(ctx context.Context, expectedAccountID string) (*
 	}); err != nil || peerErr != nil || peer == nil || peer.Uid != uint32(uid) {
 		return nil, errors.New(failure)
 	}
-	if err = json.NewEncoder(conn).Encode(map[string]string{"account_id": expectedAccountID}); err != nil {
+	request := map[string]any{"account_id": expectedAccountID}
+	if ctx.Value(nativeCodexIdentityContextKey{}) != nil {
+		request["include_client_identity"] = true
+	}
+	if err = json.NewEncoder(conn).Encode(request); err != nil {
 		return nil, errors.New(failure)
 	}
 	var lease nativeCodexTokenLease
@@ -102,6 +107,12 @@ func getNativeCodexAccessToken(ctx context.Context, account *Account) (string, e
 	}
 	if expectedUser := account.GetCredential("chatgpt_user_id"); expectedUser != "" && expectedUser != lease.UserID {
 		return "", errors.New("native Codex token broker identity mismatch")
+	}
+	if capture, ok := ctx.Value(nativeCodexIdentityContextKey{}).(*nativeCodexRequestIdentity); ok {
+		if !validNativeCodexUserAgent(lease.UserAgent) {
+			return "", errors.New("native Codex client identity unavailable")
+		}
+		capture.userAgent = lease.UserAgent
 	}
 	return lease.AccessToken, nil
 }
