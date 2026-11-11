@@ -1218,12 +1218,19 @@ func hashSensitiveValueForLog(raw string) string {
 
 // GetAccessToken gets the access token for an OpenAI account
 func (s *OpenAIGatewayService) GetAccessToken(ctx context.Context, account *Account) (string, string, error) {
+	if account.UsesNativeCodexTokenBroker() {
+		token, err := getNativeCodexAccessToken(ctx, account)
+		return token, "oauth", err
+	}
 	if account.IsShadow() {
 		credAccount, err := resolveCredentialAccount(ctx, s.accountRepo, account)
 		if err != nil {
 			return "", "", err
 		}
 		account = credAccount
+		if account.UsesNativeCodexTokenBroker() {
+			return "", "", errors.New("native Codex broker does not support credential shadows")
+		}
 	}
 	switch account.Type {
 	case AccountTypeOAuth:
