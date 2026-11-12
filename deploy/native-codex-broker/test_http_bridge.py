@@ -21,6 +21,20 @@ class Proc:
     def terminate(self):pass
 
 class Tests(unittest.TestCase):
+    def test_capacity_is_ten_and_released_slots_are_reusable(self):
+        # Exercise the actual shared gate without invoking SSH or a provider.
+        acquired=[]
+        try:
+            for _ in range(10):
+                self.assertTrue(http_bridge.LIMIT.acquire(blocking=False))
+                acquired.append(True)
+            self.assertFalse(http_bridge.LIMIT.acquire(blocking=False))
+            http_bridge.LIMIT.release();acquired.pop()
+            self.assertTrue(http_bridge.LIMIT.acquire(blocking=False))
+            acquired.append(True)
+        finally:
+            for _ in acquired:http_bridge.LIMIT.release()
+
     def test_uid_restricted_http_stream_keeps_body(self):
         with tempfile.TemporaryDirectory()as tmp:
             root=Path(tmp);(root/'binding.json').write_text(json.dumps({'account_id':'test-account','host':'100.64.0.1'}))

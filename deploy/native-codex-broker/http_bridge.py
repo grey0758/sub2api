@@ -15,7 +15,8 @@ import threading
 
 ROOT=Path('/etc/sub2api-native-codex')
 RUNTIME=Path('/run/sub2api-native-codex')
-LIMIT=threading.BoundedSemaphore(2)
+MAX_CONCURRENT_REQUESTS=10
+LIMIT=threading.BoundedSemaphore(MAX_CONCURRENT_REQUESTS)
 
 
 def ssh_args(binding):
