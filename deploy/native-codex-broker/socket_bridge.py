@@ -15,7 +15,8 @@ import threading
 
 ROOT = Path('/etc/sub2api-native-codex')
 RUNTIME = Path('/run/sub2api-native-codex')
-LIMIT = threading.BoundedSemaphore(2)
+MAX_CONCURRENT_LEASES = 10
+LIMIT = threading.BoundedSemaphore(MAX_CONCURRENT_LEASES)
 CLIENT_UID = 1000
 CLIENT_GID = 1000
 

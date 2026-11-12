@@ -23,6 +23,16 @@ class Request:
 
 
 class Tests(unittest.TestCase):
+    def test_ten_leases_fit_and_eleventh_is_bounded(self):
+        acquired=[]
+        try:
+            for _ in range(10):
+                self.assertTrue(socket_bridge.LIMIT.acquire(blocking=False))
+                acquired.append(True)
+            self.assertFalse(socket_bridge.LIMIT.acquire(blocking=False))
+        finally:
+            for _ in acquired:socket_bridge.LIMIT.release()
+
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name)
