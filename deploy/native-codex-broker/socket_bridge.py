@@ -12,11 +12,15 @@ import socketserver
 import struct
 import subprocess
 import threading
+import time
 
 ROOT = Path('/etc/sub2api-native-codex')
 RUNTIME = Path('/run/sub2api-native-codex')
 MAX_CONCURRENT_LEASES = 10
 LIMIT = threading.BoundedSemaphore(MAX_CONCURRENT_LEASES)
+# Native forced_lease already serializes official auth with flock. Bound the
+# SSH authentication burst separately without rejecting ten waiting callers.
+NATIVE_AUTH_SLOTS = threading.BoundedSemaphore(2)
 CLIENT_UID = 1000
 CLIENT_GID = 1000
 
@@ -43,13 +47,19 @@ class Handler(socketserver.BaseRequestHandler):
             if not LIMIT.acquire(timeout=3):
                 raise ValueError('busy')
             try:
-                result = subprocess.run([
+                deadline = time.monotonic() + 26
+                if not NATIVE_AUTH_SLOTS.acquire(timeout=22):
+                    raise ValueError('native auth busy')
+                try:
+                    result = subprocess.run([
                     '/usr/bin/ssh', '-F', '/dev/null', '-T', '-i', str(ROOT / 'id_ed25519'),
                     '-o', 'IdentitiesOnly=yes', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
                     '-o', 'UserKnownHostsFile=' + str(ROOT / 'known_hosts'), '-o', 'ConnectTimeout=5',
                     '-o', 'ServerAliveInterval=5', '-o', 'ServerAliveCountMax=2',
                     'codex005@' + binding['host'], 'lease'],
-                    input=json.dumps({'account_id':request['account_id'], **({'include_bridge_identity':True} if request.get('include_bridge_identity') else {})}).encode() + b'\n', capture_output=True, timeout=22)
+                        input=json.dumps({'account_id':request['account_id'], **({'include_bridge_identity':True} if request.get('include_bridge_identity') else {})}).encode() + b'\n', capture_output=True, timeout=min(22, max(.1, deadline-time.monotonic())))
+                finally:
+                    NATIVE_AUTH_SLOTS.release()
             finally:
                 LIMIT.release()
             if result.returncode or len(result.stdout) > 32768:

@@ -7,6 +7,7 @@ import socket
 import sys
 import tempfile
 import threading
+import time
 import types
 import unittest
 from unittest.mock import patch
@@ -37,11 +38,14 @@ class Tests(unittest.TestCase):
             for _ in acquired:socket_bridge.LIMIT.release()
 
     def test_ten_simultaneous_socket_leases(self):
-        # Every mocked SSH read must enter before any returns. This checks both
-        # the listener backlog and the real shared concurrency gate.
-        entered=threading.Barrier(10)
+        # Ten callers are admitted, with at most two concurrent SSH auth reads.
+        counts={'active':0,'peak':0,'calls':0};count_lock=threading.Lock()
         def native(*args,**kwargs):
-            entered.wait(timeout=5)
+            with count_lock:
+                counts['active']+=1;counts['calls']+=1
+                counts['peak']=max(counts['peak'],counts['active'])
+            time.sleep(.04)
+            with count_lock:counts['active']-=1
             return types.SimpleNamespace(returncode=0,stdout=json.dumps(self.lease).encode())
         server=socket_bridge.Server(str(self.root/'burst.sock'),socket_bridge.Handler)
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
@@ -59,6 +63,8 @@ class Tests(unittest.TestCase):
                 with concurrent.futures.ThreadPoolExecutor(max_workers=10)as pool:
                     results=list(pool.map(request,range(10)))
             self.assertEqual(results,[self.lease]*10)
+            self.assertEqual(counts['calls'],10)
+            self.assertEqual(counts['peak'],2)
         finally:server.shutdown();server.server_close()
 
     def setUp(self):
