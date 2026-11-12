@@ -81,3 +81,21 @@ the serialized body. Authentication headers are hashed. Remove the control file
 after acceptance. Leave the environment unset for no audit. Never capture or
 replay customer requests. Go/Rust TLS and header-order equality are not claimed;
 a TLS-terminating observer owns the final upstream TLS during isolated tests.
+
+
+### Capacity and dependent service changes
+
+The HTTP bridge admits ten in-flight model requests. The access broker admits
+ten waiting leases, while only two SSH authentication reads run at once;
+`forced_lease.py` keeps its native auth lock. This avoids bursts against the
+SSH server's MaxStartups without caching access tokens or changing SSH policy.
+Both UNIX listeners use a backlog of32. Lease queueing and SSH execution stay
+within the application's30second deadline. These are local limits, not a
+guarantee of ten simultaneous provider generations or freedom from overload.
+
+The deployed HTTP egress unit requires the token broker unit. Restarting the
+token broker restarts dependent egress and interrupts active SSE requests.
+Drain and check **both** cgroups before restarting either dependency chain;
+checking only active lease children is insufficient. Retain the runtime
+directory inode and root:1000/0660 socket policy. Never restart the native
+owner's existing Codex services as part of a consumer capacity update.
