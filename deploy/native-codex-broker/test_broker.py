@@ -1,9 +1,12 @@
 import json
+import concurrent.futures
 import os
 from pathlib import Path
 import struct
+import socket
 import sys
 import tempfile
+import threading
 import types
 import unittest
 from unittest.mock import patch
@@ -32,6 +35,31 @@ class Tests(unittest.TestCase):
             self.assertFalse(socket_bridge.LIMIT.acquire(blocking=False))
         finally:
             for _ in acquired:socket_bridge.LIMIT.release()
+
+    def test_ten_simultaneous_socket_leases(self):
+        # Every mocked SSH read must enter before any returns. This checks both
+        # the listener backlog and the real shared concurrency gate.
+        entered=threading.Barrier(10)
+        def native(*args,**kwargs):
+            entered.wait(timeout=5)
+            return types.SimpleNamespace(returncode=0,stdout=json.dumps(self.lease).encode())
+        server=socket_bridge.Server(str(self.root/'burst.sock'),socket_bridge.Handler)
+        thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+        start=threading.Barrier(10)
+        def request(_):
+            start.wait(timeout=5)
+            with socket.socket(socket.AF_UNIX)as client:
+                client.settimeout(10);client.connect(str(self.root/'burst.sock'))
+                client.sendall(b'{"account_id":"account-test"}\n')
+                data=bytearray()
+                while b'\n'not in data:data.extend(client.recv(65536))
+                return json.loads(data)
+        try:
+            with patch.object(socket_bridge,'ROOT',self.root),patch.object(socket_bridge.struct,'unpack',return_value=(1,1000,1000)),patch.object(socket_bridge.subprocess,'run',side_effect=native):
+                with concurrent.futures.ThreadPoolExecutor(max_workers=10)as pool:
+                    results=list(pool.map(request,range(10)))
+            self.assertEqual(results,[self.lease]*10)
+        finally:server.shutdown();server.server_close()
 
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)

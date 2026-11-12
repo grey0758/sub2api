@@ -96,6 +96,7 @@ class Handler(BaseHTTPRequestHandler):
 class Server(socketserver.ThreadingUnixStreamServer):
     daemon_threads=True
     block_on_close=False
+    request_queue_size=32
 
 
 if __name__=='__main__':
