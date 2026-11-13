@@ -17,6 +17,11 @@ import (
 )
 
 const antigravityCompatTextRecoveryKey = "antigravity_compat_text_recovery"
+
+// Header waits and quota failover can exceed 90 seconds before the first
+// generation finishes. Keep one recovery available for these slow requests;
+// the existing tool/output/cancellation guards and one-attempt budget still apply.
+const antigravityCompatTextRecoveryMaxAge = 3 * time.Minute
 const antigravityCompatTextRecoveryInstruction = "No callable tools are available for this turn. Respond directly with text. If a task mentions tools or commands, describe them as text; do not emit function calls or attempt to execute tools."
 
 var errAntigravityCompatRecoverText = errors.New("retry empty no-tool malformed generation once")
@@ -37,7 +42,7 @@ func antigravityCompatRecoveryFromContext(c *gin.Context) *antigravityCompatText
 }
 func antigravityCompatCanRecoverText(c *gin.Context) bool {
 	r := antigravityCompatRecoveryFromContext(c)
-	return r != nil && r.allowed && !r.used && c.Request.Context().Err() == nil && time.Since(r.started) < 90*time.Second
+	return r != nil && r.allowed && !r.used && c.Request.Context().Err() == nil && time.Since(r.started) < antigravityCompatTextRecoveryMaxAge
 }
 
 // Recovery is restricted to native Gemini requests with no tools and no tool

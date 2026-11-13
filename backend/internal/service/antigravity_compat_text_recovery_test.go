@@ -17,7 +17,7 @@ import (
 
 func TestAntigravityCompatTextRecovery(t *testing.T) {
 	for _, protocol := range []string{"chat", "responses"} {
-		for _, scenario := range []string{"stream", "nonstream", "after_ping", "exhausted", "after_text", "after_thinking", "tool_declared", "tool_declared_none", "tool_history", "tool_in_error", "media_in_error", "budget_used", "cancelled", "cancel_after_attempt", "retry_http_error", "retry_empty"} {
+		for _, scenario := range []string{"stream", "nonstream", "after_ping", "slow_first_attempt", "expired_first_attempt", "exhausted", "after_text", "after_thinking", "tool_declared", "tool_declared_none", "tool_history", "tool_in_error", "media_in_error", "budget_used", "cancelled", "cancel_after_attempt", "retry_http_error", "retry_empty"} {
 			t.Run(protocol+"/"+scenario, func(t *testing.T) {
 				stream := scenario != "nonstream"
 				rawBody := map[string]any{"model": "gemini-3.1-pro-high", "stream": stream, "tools": []any{}}
@@ -96,13 +96,24 @@ func TestAntigravityCompatTextRecovery(t *testing.T) {
 					c.Request = c.Request.WithContext(ctx)
 					upstream.onCall = func(_ *http.Request, _ *queuedHTTPUpstreamStub) { cancel() }
 				}
+				if scenario == "slow_first_attempt" || scenario == "expired_first_attempt" {
+					upstream.onCall = func(_ *http.Request, _ *queuedHTTPUpstreamStub) {
+						r := antigravityCompatRecoveryFromContext(c)
+						require.NotNil(t, r)
+						if scenario == "slow_first_attempt" {
+							r.started = time.Now().Add(-96 * time.Second)
+						} else {
+							r.started = time.Now().Add(-181 * time.Second)
+						}
+					}
+				}
 				var result *ForwardResult
 				if protocol == "chat" {
 					result, err = svc.ForwardAsChatCompletions(ctx, c, newAntigravityCompatAccount(AccountTypeOAuth), raw, nil)
 				} else {
 					result, err = svc.ForwardAsResponses(ctx, c, newAntigravityCompatAccount(AccountTypeOAuth), raw, nil)
 				}
-				recoverable := scenario == "stream" || scenario == "nonstream" || scenario == "after_ping"
+				recoverable := scenario == "stream" || scenario == "nonstream" || scenario == "after_ping" || scenario == "slow_first_attempt"
 				attempts := 1
 				if recoverable || scenario == "exhausted" || scenario == "retry_http_error" || scenario == "retry_empty" {
 					attempts = 2
@@ -164,7 +175,11 @@ func TestAntigravityCompatTextRecoveryBounds(t *testing.T) {
 	r.used = true
 	require.False(t, antigravityCompatCanRecoverText(c))
 	r.used = false
-	r.started = time.Now().Add(-91 * time.Second)
+	r.started = time.Now().Add(-96 * time.Second)
+	require.True(t, antigravityCompatCanRecoverText(c))
+	r.started = time.Now().Add(-179 * time.Second)
+	require.True(t, antigravityCompatCanRecoverText(c))
+	r.started = time.Now().Add(-181 * time.Second)
 	require.False(t, antigravityCompatCanRecoverText(c))
 	for _, field := range []string{"functionCall", "inlineData", "fileData", "executableCode", "unknown_future_payload"} {
 		require.True(t, antigravityCompatPartsHaveOutput([]map[string]any{{field: map[string]any{}}}))
