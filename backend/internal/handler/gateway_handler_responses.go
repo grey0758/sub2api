@@ -278,7 +278,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		accountReleaseFunc = wrapReleaseOnDone(c.Request.Context(), accountReleaseFunc)
 
 		// 5. Forward request
-		writerSizeBeforeForward := c.Writer.Size()
+		writerSizeBeforeForward := service.AntigravityCompatHeaderKeepaliveWrittenSize(c)
 		forwardBody := body
 		if channelMapping.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
@@ -342,11 +342,12 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			})
 		}
 
+		streamStarted = streamStarted || service.AntigravityCompatHasHeaderKeepalive(c)
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				// Can't failover if streaming content already sent
-				if c.Writer.Size() != writerSizeBeforeForward {
+				if service.AntigravityCompatHeaderKeepaliveWrittenSize(c) != writerSizeBeforeForward {
 					h.handleResponsesFailoverExhausted(c, failoverErr, true)
 					return
 				}
@@ -425,7 +426,7 @@ func (h *GatewayHandler) handleResponsesFailoverExhausted(c *gin.Context, lastEr
 		// official terminal bytes exist, preserve them without appending a second
 		// generic response.failed.
 		service.MarkOpsStreamError(c, code, message, status)
-		if c != nil && c.Writer != nil && (c.Writer.Size() <= 0 || gatewayStreamHasOnlyHeartbeats(c)) {
+		if c != nil && c.Writer != nil && (c.Writer.Size() <= 0 || gatewayStreamHasOnlyHeartbeats(c) || (service.AntigravityCompatHasHeaderKeepalive(c) && service.AntigravityCompatHeaderKeepaliveWrittenSize(c) <= 0)) {
 			writeResponsesFailedSSE(c, code, "", message)
 		}
 		return

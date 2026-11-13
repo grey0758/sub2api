@@ -287,7 +287,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		}
 
 		// 5. Forward request
-		writerSizeBeforeForward := c.Writer.Size()
+		writerSizeBeforeForward := service.AntigravityCompatHeaderKeepaliveWrittenSize(c)
 		forwardBody := body
 		if channelMapping.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
@@ -360,10 +360,11 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			})
 		}
 
+		streamStarted = streamStarted || service.AntigravityCompatHasHeaderKeepalive(c)
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
-				if c.Writer.Size() != writerSizeBeforeForward {
+				if service.AntigravityCompatHeaderKeepaliveWrittenSize(c) != writerSizeBeforeForward {
 					h.handleCCFailoverExhausted(c, failoverErr, true)
 					return
 				}
@@ -415,6 +416,11 @@ func (h *GatewayHandler) chatCompletionsErrorResponse(c *gin.Context, status int
 // handleCCFailoverExhausted writes a failover-exhausted error in CC format.
 func (h *GatewayHandler) handleCCFailoverExhausted(c *gin.Context, lastErr *service.UpstreamFailoverError, streamStarted bool) {
 	if streamStarted {
+		if service.AntigravityCompatHasHeaderKeepalive(c) && service.AntigravityCompatHeaderKeepaliveWrittenSize(c) <= 0 {
+			service.MarkOpsStreamError(c, "upstream_error", "All available accounts exhausted", http.StatusBadGateway)
+			_, _ = c.Writer.Write([]byte("data: {\"error\":{\"type\":\"upstream_error\",\"message\":\"All available accounts exhausted\"}}\n\n"))
+			c.Writer.Flush()
+		}
 		return
 	}
 	if lastErr != nil {

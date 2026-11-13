@@ -316,6 +316,7 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStreamWithKeepaliveIn
 	}
 	session := newAntigravityCompatStreamSession(originalModel, startTime, adapter, writer)
 	session.preContentKeepaliveInterval = interval
+	session.preContentKeepaliveSent = AntigravityCompatHasHeaderKeepalive(c)
 	events, stopScanner, maxLineSize, queueBudget := s.startAntigravityCompatScanner(resp.Body)
 	defer stopScanner()
 
@@ -334,7 +335,9 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStreamWithKeepaliveIn
 	}
 	preContentTimer := time.NewTimer(preContentDelay)
 	defer preContentTimer.Stop()
-	preContentDeadline := startTime.Add(maxPreContentWait)
+	// Response-header waiting is handled separately. Do not expire a valid
+	// body immediately merely because Google took minutes to return headers.
+	preContentDeadline := time.Now().Add(maxPreContentWait)
 	deadlineDelay := time.Until(preContentDeadline)
 	if deadlineDelay < 0 {
 		deadlineDelay = 0

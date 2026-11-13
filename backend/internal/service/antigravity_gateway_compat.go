@@ -232,6 +232,14 @@ func (s *AntigravityGatewayService) forwardAntigravityCompat(
 		recovery = &antigravityCompatTextRecovery{allowed: len(gjson.GetBytes(request.originalBody, "tools").Array()) == 0 && antigravityCompatTextOnly(call.geminiBody), started: request.startTime}
 		c.Set(antigravityCompatTextRecoveryKey, recovery)
 	}
+	upstream := s.httpUpstream
+	if request.clientStream {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(ctx)
+		defer cancel()
+		c.Set(antigravityCompatStreamProtocolKey, request.protocol)
+		upstream = &antigravityCompatHeaderKeepaliveUpstream{HTTPUpstream: s.httpUpstream, c: c, interval: antigravityCompatPreContentKeepaliveInterval, cancelRequest: cancel}
+	}
 	for attempt := 0; attempt < 2; attempt++ {
 		result, err := s.antigravityRetryLoop(antigravityRetryLoopParams{
 			ctx:             ctx,
@@ -242,7 +250,7 @@ func (s *AntigravityGatewayService) forwardAntigravityCompat(
 			action:          "streamGenerateContent",
 			body:            call.geminiBody,
 			c:               c,
-			httpUpstream:    s.httpUpstream,
+			httpUpstream:    upstream,
 			settingService:  s.settingService,
 			accountRepo:     s.accountRepo,
 			handleError:     s.handleUpstreamError,
@@ -675,6 +683,9 @@ func (s *AntigravityGatewayService) writeAntigravityCompatError(
 	message string,
 ) error {
 	MarkResponseCommitted(c)
+	if AntigravityCompatHasHeaderKeepalive(c) && c.Writer.Written() {
+		return antigravityCompatCommittedStreamError(c, message)
+	}
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"message": message,
@@ -707,14 +718,7 @@ func (s *AntigravityGatewayService) writeMappedAntigravityCompatError(
 		Kind:               "http_error",
 		Message:            message,
 	})
-	c.JSON(mapUpstreamStatusCode(upstreamStatus), gin.H{
-		"error": gin.H{
-			"message": getPassthroughOrDefault(message, "Upstream request failed"),
-			"type":    "upstream_error",
-			"param":   nil,
-			"code":    nil,
-		},
-	})
+	_ = s.writeAntigravityCompatError(c, mapUpstreamStatusCode(upstreamStatus), "upstream_error", getPassthroughOrDefault(message, "Upstream request failed"))
 	return fmt.Errorf("upstream error: %d %s", upstreamStatus, message)
 }
 

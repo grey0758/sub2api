@@ -1176,7 +1176,7 @@ func TestAntigravityCompatHandlerPreContentDeadlineWithCommentOnlyStream(t *test
 	_ = pipeWriter.Close()
 }
 
-func TestAntigravityCompatExpiredPreContentDeadlineDoesNotCommit(t *testing.T) {
+func TestAntigravityCompatBodyDeadlineStillBoundsSlowHeaders(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, nil)
 	c, recorder := newAntigravityCompatContext(http.MethodPost, "/v1/responses", nil)
@@ -1187,11 +1187,11 @@ func TestAntigravityCompatExpiredPreContentDeadlineDoesNotCommit(t *testing.T) {
 	result, err := svc.handleAntigravityCompatStreamWithKeepaliveInterval(c, resp,
 		time.Now().Add(-time.Minute), "gemini-3.1-pro",
 		newAntigravityResponsesStreamAdapter("gemini-3.1-pro"), "test", 10*time.Millisecond, 20*time.Millisecond)
-	require.Nil(t, result)
-	var failoverErr *UpstreamFailoverError
-	require.ErrorAs(t, err, &failoverErr)
-	require.Empty(t, recorder.Body.String())
-	require.False(t, IsResponseCommitted(c))
+	require.NotNil(t, result)
+	require.ErrorContains(t, err, "pre-content stream timeout")
+	require.Contains(t, recorder.Body.String(), ": ping\n\n")
+	require.Contains(t, recorder.Body.String(), "event: error")
+	require.True(t, IsResponseCommitted(c))
 }
 
 func TestAntigravityCompatHandlerErrorsAfterPreContentPing(t *testing.T) {
