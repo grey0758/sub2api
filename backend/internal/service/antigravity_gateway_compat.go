@@ -260,7 +260,7 @@ func (s *AntigravityGatewayService) forwardAntigravityCompat(
 			sessionHash:     "",
 		})
 		if err != nil {
-			if recovery.used && c.Writer.Written() {
+			if recovery.used && c.Writer.Written() && c.Request.Context().Err() == nil {
 				return nil, writeAntigravityCompatRecoveryStreamError(c, request.protocol, "Upstream request failed during text recovery")
 			}
 			return nil, s.handleAntigravityCompatTransportError(c, err)
@@ -529,14 +529,22 @@ func antigravityCompatProxyURL(account *Account) string {
 }
 
 func (s *AntigravityGatewayService) handleAntigravityCompatTransportError(c *gin.Context, err error) error {
+	if canceled := c.Request.Context().Err(); canceled != nil {
+		// A heartbeat can commit HTTP200 before any generated output. Preserve
+		// cancellation as a logical499 instead of a recovered upstream error;
+		// the client is gone, so do not append JSON or an SSE terminal frame.
+		MarkResponseCommitted(c)
+		MarkOpsStreamFailure(c, "client_disconnected", "client_disconnected", "Client disconnected before upstream response", antigravityStatusClientClosed)
+		if !c.Writer.Written() {
+			c.Status(antigravityStatusClientClosed)
+		}
+		return fmt.Errorf("client disconnected before upstream response: %w", canceled)
+	}
 	if switchErr, ok := IsAntigravityAccountSwitchError(err); ok {
 		return &UpstreamFailoverError{
 			StatusCode:        http.StatusServiceUnavailable,
 			ForceCacheBilling: switchErr.IsStickySession,
 		}
-	}
-	if c.Request.Context().Err() != nil {
-		return s.writeAntigravityCompatError(c, antigravityStatusClientClosed, "client_disconnected", "Client disconnected before upstream response")
 	}
 	return s.writeAntigravityCompatError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed after retries")
 }
