@@ -124,3 +124,31 @@ func TestAntigravityQuotaReconcileUsesNarrowCASCapability(t *testing.T) {
 	require.Len(t, r.next, 2)
 	require.True(t, r.separate)
 }
+
+func TestAntigravityQuotaReconcilePreservesConfirmedArgon429(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		known, scoped bool
+	}{
+		{"known_group_model_limit", true, false},
+		{"independent_scope", true, true},
+		{"scope_survives_plan_flag", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, u, now := quotaReconcileFixture()
+			limits := a.Extra[modelRateLimitsKey].(map[string]any)
+			delete(limits, antigravityGeminiModelRateLimitKey)
+			limits["gemini-4-argon-high"] = limits["gemini-4-argon-low"]
+			if tc.scoped {
+				limits[antigravityArgonModelRateLimitKey] = limits["gemini-4-argon-high"]
+			}
+			a.Extra[antigravitySeparateArgonQuotaKey] = tc.known
+			expected, next, separate, changed := antigravityQuotaReconciliation(a, u, now)
+			require.Equal(t, expected, next, "positive metadata must not erase an independently confirmed upstream429")
+			require.True(t, separate)
+			require.Equal(t, !tc.known, changed)
+			require.True(t, a.isModelRateLimitedWithContext(context.Background(), "gemini-4-argon-high"))
+			require.False(t, a.isModelRateLimitedWithContext(context.Background(), "gemini-3.8-flash-high"))
+		})
+	}
+}

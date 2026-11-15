@@ -93,6 +93,11 @@ func antigravityQuotaReconciliation(a *Account, u *UsageInfo, started time.Time)
 		expected = map[string]any{}
 	}
 	next := maps.Clone(expected)
+	// Positive summary metadata can coexist with a real Argon quota429. Once
+	// independent grouping or its scope has been observed, preserve its actual
+	// model limits through their own reset instead of re-clearing them on reads.
+	_, independentArgonLimit := expected[antigravityArgonModelRateLimitKey]
+	confirmedArgon := separateAntigravityArgonQuota(a) || independentArgonLimit
 	modelAvailable := func(model string) bool {
 		q := u.AntigravityQuota[model]
 		return q != nil && q.Utilization >= 0 && q.Utilization < 100
@@ -128,12 +133,12 @@ func antigravityQuotaReconciliation(a *Account, u *UsageInfo, started time.Time)
 		case antigravityGeminiModelRateLimitKey:
 			available = allModelsAvailable
 		case antigravityArgonModelRateLimitKey:
-			available = argon && allModelsAvailable
+			continue // This scope is only written after independent quota is confirmed.
 		default:
 			if isAntigravityGeminiModel(key) && !isAntigravityGeminiImageModel(key) {
 				available = general && modelAvailable(key)
 				if isAntigravityArgonModel(key) {
-					available = argon && modelAvailable(key)
+					available = !confirmedArgon && argon && modelAvailable(key)
 				}
 			}
 		}
