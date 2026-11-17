@@ -30,6 +30,7 @@ type antigravityCompatTextRecovery struct {
 	allowed, used bool
 	started       time.Time
 	failedUsage   *ClaudeUsage
+	failureReason string
 }
 
 func antigravityCompatRecoveryFromContext(c *gin.Context) *antigravityCompatTextRecovery {
@@ -104,10 +105,15 @@ func isAntigravityMalformedError(err error) bool {
 }
 func recordAntigravityCompatGenerationFailure(c *gin.Context, account *Account, recovering bool, usage *ClaudeUsage) {
 	reason := "MALFORMED_FUNCTION_CALL"
+	code := "malformed_function_call"
+	if recovery := antigravityCompatRecoveryFromContext(c); recovering && recovery != nil && recovery.failureReason == "empty_stream" {
+		reason = "empty_stream"
+		code = "empty_stream"
+	}
 	if recovering {
 		reason += "; one text-only recovery; no output or tool emitted"
 	}
-	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{Platform: account.Platform, AccountID: account.ID, ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account), UpstreamStatusCode: http.StatusOK, Kind: "generation_error", Stage: "generation", Scope: "request", Reason: "malformed_function_call", Message: reason})
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{Platform: account.Platform, AccountID: account.ID, ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account), UpstreamStatusCode: http.StatusOK, Kind: "generation_error", Stage: "generation", Scope: "request", Reason: code, Message: reason})
 	// Failed generation tokens are provider telemetry, not a second customer usage record.
 	if usage != nil {
 		logger.LegacyPrintf("service.antigravity_gateway", "text_recovery account=%d failed_input_tokens=%d failed_output_tokens=%d failed_cache_read_tokens=%d", account.ID, usage.InputTokens, usage.OutputTokens, usage.CacheReadInputTokens)

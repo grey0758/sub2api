@@ -116,6 +116,7 @@ type antigravityCompatStreamSession struct {
 	startTime                   time.Time
 	meaningfulData              bool
 	upstreamOutput              bool
+	emptyRecoveryBlocked        bool
 	preContentKeepaliveSent     bool
 	preContentKeepaliveInterval time.Duration
 }
@@ -150,6 +151,23 @@ func (s *antigravityCompatStreamSession) consume(line string) {
 		if json.Unmarshal([]byte(strings.TrimSpace(strings.TrimPrefix(line, "data:"))), &raw) == nil {
 			if response, ok := raw["response"].(map[string]any); ok {
 				raw = response
+			}
+			// A policy refusal or another explicit terminal reason is not a
+			// transport EOF. Never add a text recovery for these responses.
+			if raw["error"] != nil {
+				s.emptyRecoveryBlocked = true
+			}
+			if feedback, ok := raw["promptFeedback"].(map[string]any); ok && feedback["blockReason"] != nil {
+				s.emptyRecoveryBlocked = true
+			}
+			if candidates, ok := raw["candidates"].([]any); ok {
+				for _, candidate := range candidates {
+					if value, ok := candidate.(map[string]any); ok {
+						if reason, _ := value["finishReason"].(string); reason != "" && reason != "STOP" {
+							s.emptyRecoveryBlocked = true
+						}
+					}
+				}
 			}
 			s.upstreamOutput = s.upstreamOutput || antigravityCompatPartsHaveOutput(extractGeminiParts(raw))
 		}
@@ -420,6 +438,16 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStreamWithKeepaliveIn
 }
 
 func handleAntigravityCompatEmptyStream(c *gin.Context, session *antigravityCompatStreamSession) (*antigravityStreamResult, error) {
+	// Reuse the existing request-wide budget only after a graceful empty EOF.
+	// Comments and signatures alone cannot execute a tool. Tools/history,
+	// thinking/text/media, cancellation, timeouts and explicit stops remain
+	// outside this recovery, including after headers have been committed.
+	if antigravityCompatCanRecoverText(c) && !session.hasMeaningfulData() && !session.upstreamOutput && !session.emptyRecoveryBlocked && !session.writer.Disconnected() {
+		recovery := antigravityCompatRecoveryFromContext(c)
+		recovery.failedUsage = session.collectResult(false).usage
+		recovery.failureReason = "empty_stream"
+		return nil, errAntigravityCompatRecoverText
+	}
 	if session.preContentKeepaliveSent {
 		writeAntigravityCompatStreamError(c, session.adapter, session.writer, "empty_stream")
 		return session.collectResult(false), errors.New("empty Antigravity compatibility stream after keepalive")
