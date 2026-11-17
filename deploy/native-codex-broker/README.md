@@ -72,6 +72,14 @@ compression in an independent HTTP/1.1 pool. Other accounts retain their existin
 identity, namespace and transport policies. Generic API input does not become a
 full native Codex prompt unless the caller supplies that content.
 
+When an intermediate gateway drops native Lite/session headers, this account
+recognizes complete CLI input with developer/system context plus session, thread
+and turn metadata. It retains the original payload instead of adding duplicate
+instructions, restores headers from the already-scoped body, and keeps raw JSON
+field order and unchanged input/tool bytes. Window IDs retain the scoped thread
+UUID plus their numeric window suffix. Explicit ordinary API instructions retain
+the existing compatibility path. No other account uses this body-shape inference.
+
 Optional synthetic-only production audit: `OPENAI_NATIVE_PACKET_AUDIT_DIR` names
 an existing private0700 application-owned directory. A short-lived `control.json`
 selects `account_id`, a random `marker` of at least32 characters present in the
