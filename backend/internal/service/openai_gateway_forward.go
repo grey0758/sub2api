@@ -97,7 +97,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			body = reasoningBody
 		}
 	}
-	responsesLite := account.IsOpenAI() && isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader))
+	responsesLite := account.IsOpenAI() && (isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) || (account.UsesNativeCodexTokenBroker() && isNativeCodexLitePayload(body)))
 	if responsesLite {
 		liteBody, changed, liteErr := normalizeOpenAIResponsesLitePayloadForAccount(body, account)
 		if liteErr != nil {

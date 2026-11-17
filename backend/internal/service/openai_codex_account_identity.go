@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -99,6 +100,15 @@ func scopeCodexAccountIdentityValue(account *Account, apiKeyID int64, kind, raw 
 	// Native HTTP uses the same UUID for several aliases (session/thread/cache).
 	// Scope the value once while preserving those equality relationships.
 	if account.UsesNativeCodexTokenBroker() {
+		// Native window IDs alias the thread ID plus its window counter. Scope
+		// the thread component once so header/body window relationships survive.
+		if kind == "window" {
+			if pos := strings.LastIndexByte(raw, ':'); pos > 0 {
+				if _, err := strconv.ParseUint(raw[pos+1:], 10, 64); err == nil {
+					return scopeCodexAccountIdentityValue(account, apiKeyID, "thread", raw[:pos]) + raw[pos:]
+				}
+			}
+		}
 		kind = "native-id"
 	}
 	return deriveStableUUIDv4(fmt.Sprintf(

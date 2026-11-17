@@ -13,7 +13,7 @@ from urllib.parse import urlsplit
 
 ROOT = Path('/etc/sub2api-native-codex')
 STATE = Path('/home/codex005/.local/state/sub2api-native-egress')
-AUDIT = Path('/home/codex005/.local/state/sub2api-native-egress-20261111/capture')
+AUDIT = STATE / 'packet-audit'
 LIMIT = 16 * 1024 * 1024
 ORDER = ['x-codex-beta-features','x-codex-window-id','x-codex-turn-metadata',
          'x-openai-internal-codex-responses-lite','x-client-request-id',
@@ -65,8 +65,11 @@ def audit_start(headers, body):
     try:
         control = json.loads((AUDIT/'control.json').read_text())
         if not(time.time()<control['expires_at']<=time.time()+1800) or len(control['marker'])<32 or control['marker'].encode() not in body:return None
-        for index in range(16):
-            prefix=AUDIT/('capture-%02d'%index)
+        directory=Path(control['directory'])
+        if directory.resolve()!=directory or directory.name!='production' or not directory.parent.name.startswith('sub2api-cli-align-'):return None
+        if directory.parent.parent!=STATE.parent or directory.stat().st_uid!=os.getuid() or directory.stat().st_mode&0o077:return None
+        for index in range(8):
+            prefix=directory/('capture-%02d'%index)
             try:
                 with (prefix.with_suffix('.intent')).open('x'):pass
                 break
@@ -75,6 +78,48 @@ def audit_start(headers, body):
         prefix.with_suffix('.body').write_bytes(body)
         return prefix
     except (OSError,ValueError,KeyError,TypeError):return None
+
+
+def client_hello_profile(raw):
+    """Describe actual ClientHello without random, session, or key-share bytes."""
+    if len(raw)<39 or raw[0]!=1:raise ValueError('not ClientHello')
+    def u16(b):return int.from_bytes(b,'big')
+    def words(b):return [u16(b[i:i+2])for i in range(0,len(b),2)]
+    def grease(n):return n&0x0f0f==0x0a0a and n>>8==n&255
+    p=4;version=u16(raw[p:p+2]);p+=34
+    p+=1+raw[p];n=u16(raw[p:p+2]);p+=2;ciphers=[x for x in words(raw[p:p+n])if not grease(x)];p+=n
+    p+=1+raw[p];n=u16(raw[p:p+2]);p+=2;end=p+n
+    extensions=[];groups=[];points=[];versions=[];signatures=[];alpn=[];shares=[];stable=[]
+    while p<end:
+        kind=u16(raw[p:p+2]);n=u16(raw[p+2:p+4]);p+=4;data=raw[p:p+n];p+=n
+        if grease(kind):continue
+        extensions.append(kind)
+        if kind==10:groups=[x for x in words(data[2:])if not grease(x)]
+        if kind==11:points=list(data[1:])
+        if kind==43:versions=[x for x in words(data[1:])if not grease(x)]
+        if kind==13:signatures=words(data[2:])
+        if kind==16:
+            q=2
+            while q<len(data):m=data[q];q+=1;alpn.append(data[q:q+m].decode('ascii'));q+=m
+        if kind==51:
+            q=2
+            while q<len(data):group=u16(data[q:q+2]);m=u16(data[q+2:q+4]);q+=4;shares.append({'group':group,'bytes':m});q+=m
+        elif kind not in (21,41,44):stable.append({'type':kind,'sha256':hashlib.sha256(data).hexdigest()})
+    if p!=end or end!=len(raw):raise ValueError('ClientHello length mismatch')
+    profile={'legacy_version':version,'ciphers':ciphers,'extensions':extensions,'groups':groups,'point_formats':points,'supported_versions':versions,'signature_algorithms':signatures,'alpn':alpn,'key_share_shapes':shares,'stable_extensions':stable}
+    ja3=','.join((str(version),'-'.join(map(str,ciphers)),'-'.join(map(str,extensions)),'-'.join(map(str,groups)),'-'.join(map(str,points))))
+    return {'profile':profile,'normalized_sha256':hashlib.sha256(json.dumps(profile,sort_keys=True,separators=(',',':')).encode()).hexdigest(),'ja3':ja3,'ja3_md5':hashlib.md5(ja3.encode()).hexdigest(),'wire_bytes':len(raw),'wire_sha256':hashlib.sha256(raw).hexdigest()}
+
+
+def audit_tls_context(prefix):
+    context=ssl.create_default_context()
+    if prefix is not None:
+        def observe(connection,direction,version,content_type,message_type,data):
+            if direction=='write' and int(content_type)==22 and int(message_type)==1:
+                try:prefix.with_suffix('.clienthello.json').write_text(json.dumps(client_hello_profile(bytes(data))))
+                except (OSError,ValueError,IndexError,UnicodeError):pass
+        context._msg_callback=observe
+    return context
 
 
 def run(stdin=None, stdout=None):
@@ -106,7 +151,7 @@ def run(stdin=None, stdout=None):
         stdout.write(('HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n'%len(raw)).encode()+raw);stdout.flush();return
     outgoing=ordered_headers(lower,catalogue['user_agent'])
     prefix=audit_start(outgoing,body)
-    context=ssl.create_default_context()
+    context=audit_tls_context(prefix)
     actual_headers=[]
     class ObservedConnection(http.client.HTTPSConnection):
         def putheader(self,header,*values):

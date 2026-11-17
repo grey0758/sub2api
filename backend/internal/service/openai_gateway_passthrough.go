@@ -151,7 +151,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	}
 
 	if account != nil && account.UsesOpenAICodexProtocol() {
-		if isOpenAICodexModel(reqModel) && !gjson.GetBytes(body, "instructions").Exists() {
+		if isOpenAICodexModel(reqModel) && !gjson.GetBytes(body, "instructions").Exists() && !(account.UsesNativeCodexTokenBroker() && (isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) || isNativeCodexLitePayload(body))) {
 			nextBody, setErr := sjson.SetBytes(body, "instructions", defaultCodexSynthInstructions(reqModel))
 			if setErr != nil {
 				return nil, fmt.Errorf("set passthrough codex instructions: %w", setErr)
@@ -205,7 +205,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		}
 	}
 	if account != nil && account.IsOpenAI() {
-		responsesLite := isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) || isOpenAIResponsesLiteWebSocketPayload(body)
+		responsesLite := isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) || isOpenAIResponsesLiteWebSocketPayload(body) || (account.UsesNativeCodexTokenBroker() && isNativeCodexLitePayload(body))
 		normalizedBody, normalized, normalizeErr := normalizeOpenAIResponsesCompatibilityBodyWithOptions(body, account, openAIResponsesCompatibilityOptions{
 			Config:        s.cfg,
 			ResponsesLite: responsesLite,
