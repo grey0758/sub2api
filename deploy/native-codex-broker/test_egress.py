@@ -1,9 +1,11 @@
 import base64
 import json
 import sys
+import tempfile
 from pathlib import Path
 import time
 import unittest
+from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).parent))
 import native_egress
 
@@ -31,6 +33,24 @@ class Tests(unittest.TestCase):
     def test_expired_native_catalogue_rejected(self):
         self.catalogue['expires_at']=time.time()-1
         with self.assertRaises(ValueError):native_egress.validate_request('POST','/backend-api/codex/responses',self.headers,self.body,self.binding,self.catalogue)
+
+    def test_inflight_lease_can_use_previous_exact_catalogue_during_release(self):
+        current = dict(self.catalogue, user_agent='codex_cli_rs/0.171.0 (synthetic)')
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            (state / 'catalogue.json').write_text(json.dumps(current))
+            previous_path = state / 'catalogue.previous.json'
+            now = time.time()
+            with patch.object(native_egress, 'STATE', state), patch.object(native_egress.time, 'time', return_value=now):
+                self.assertEqual(native_egress.catalogue_for_client(self.catalogue['user_agent']), current)
+                for remaining in (121, 45, -1):
+                    previous = dict(self.catalogue, expires_at=now + remaining)
+                    previous_path.write_text(json.dumps(previous))
+                    self.assertEqual(native_egress.catalogue_for_client(current['user_agent']), current)
+                    self.assertEqual(native_egress.catalogue_for_client(self.catalogue['user_agent']),
+                                     previous if remaining == 45 else current)
+                    self.assertEqual(native_egress.catalogue_for_client('unknown'), current)
+
     def test_final_http_policy_and_order_match_native_proxy(self):
         headers=dict(self.headers,**{'version':'0.999.0','x-codex-routing-hint':'model=bad','accept-encoding':'gzip','session-id':'s','thread-id':'s','accept':'text/event-stream','content-type':'application/json'})
         result=native_egress.ordered_headers(headers,self.headers['user-agent']);self.assertNotIn('version',result);self.assertNotIn('x-codex-routing-hint',result);self.assertEqual(result['Accept-Encoding'],'identity');self.assertEqual(result['Connection'],'close');self.assertEqual(result['Host'],'chatgpt.com');self.assertLess(list(result).index('session-id'),list(result).index('authorization'))

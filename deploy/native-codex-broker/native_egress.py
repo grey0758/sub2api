@@ -22,6 +22,23 @@ ORDER = ['x-codex-beta-features','x-codex-window-id','x-codex-turn-metadata',
 ALLOW = set(ORDER) | {'x-codex-turn-state','x-codex-installation-id','accept-language','if-none-match'}
 
 
+def catalogue_for_client(user_agent):
+    current = json.loads((STATE / 'catalogue.json').read_text())
+    if current['user_agent'] == user_agent:
+        return current
+
+    # A request can already hold a lease while the broker switches binaries.
+    # The release prepares the previous exact catalogue for that bounded window.
+    try:
+        previous = json.loads((STATE / 'catalogue.previous.json').read_text())
+        remaining = previous['expires_at'] - time.time()
+        if previous['user_agent'] == user_agent and 0 < remaining <= 120:
+            return previous
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return current
+
+
 def validate_request(method, path, headers, body, binding, catalogue):
     parsed = urlsplit(path)
     if parsed.scheme or parsed.netloc or '\\' in path:
@@ -137,7 +154,8 @@ def run(stdin=None, stdout=None):
     if len(body)!=length:raise ValueError('truncated body')
     lower={k.lower():v for k,v in headers.items()}
     if len(lower)!=len(list(headers.items())):raise ValueError('duplicate header denied')
-    binding=json.loads((ROOT/'binding.json').read_text());catalogue=json.loads((STATE/'catalogue.json').read_text())
+    binding = json.loads((ROOT / 'binding.json').read_text())
+    catalogue = catalogue_for_client(lower.get('user-agent'))
     validate_request(method,path,lower,body,binding,catalogue)
     if method=='GET':
         rows=[]
