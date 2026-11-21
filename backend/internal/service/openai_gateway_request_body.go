@@ -1438,6 +1438,9 @@ func normalizeOpenAIOAuthResponsesCompatibilityFields(reqBody map[string]any) bo
 		if !ok {
 			continue
 		}
+		if isCodexGoalContextMap(item) {
+			continue // Native 0.171 HTTP accepts goal context metadata verbatim.
+		}
 		if _, exists := item["internal_chat_message_metadata_passthrough"]; exists {
 			delete(item, "internal_chat_message_metadata_passthrough")
 			changed = true
@@ -1483,7 +1486,7 @@ func normalizeOpenAIOAuthResponsesCompatibilityBody(body []byte) ([]byte, bool, 
 		return normalized, changed, nil
 	}
 	for i, item := range input.Array() {
-		if !item.IsObject() || !item.Get("internal_chat_message_metadata_passthrough").Exists() {
+		if !item.IsObject() || !item.Get("internal_chat_message_metadata_passthrough").Exists() || IsCodexGoalContextItem(item) {
 			continue
 		}
 		next, err := sjson.DeleteBytes(normalized, fmt.Sprintf("input.%d.internal_chat_message_metadata_passthrough", i))
