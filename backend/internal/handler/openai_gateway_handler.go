@@ -1667,7 +1667,10 @@ func (h *OpenAIGatewayHandler) validateFunctionCallOutputRequest(c *gin.Context,
 		return true
 	}
 
-	validation := service.ValidateFunctionCallOutputContextBytes(body)
+	// Exclude only the recognized synthetic goal from correlation validation.
+	// The real forwarded body retains the complete native item, byte for byte.
+	validationBody, _ := codexGoalValidationBody(body)
+	validation := service.ValidateFunctionCallOutputContextBytes(validationBody)
 	if !validation.HasFunctionCallOutput {
 		return true
 	}

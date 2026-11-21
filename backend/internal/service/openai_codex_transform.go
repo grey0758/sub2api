@@ -1703,7 +1703,8 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 			copied = true
 		}
 
-		if isCodexToolCallItemType(typ) {
+		// A synthetic goal's id identifies context, never a function invocation.
+		if isCodexToolCallItemType(typ) && !isCodexGoalContextMap(m) {
 			callID, ok := m["call_id"].(string)
 			if !ok || strings.TrimSpace(callID) == "" {
 				if id, ok := m["id"].(string); ok && strings.TrimSpace(id) != "" {

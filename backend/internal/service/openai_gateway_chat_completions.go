@@ -329,6 +329,11 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	responsesReq.ServiceTier = normalizedOpenAIServiceTierValue(gjson.GetBytes(responsesBody, "service_tier").String())
 
 	// 5. Get access token
+	if account.UsesNativeCodexTokenBroker() {
+		// The converted Responses request needs the same negotiated identity as
+		// direct Responses ingress. Legacy access-only leases omit user_agent.
+		ctx = context.WithValue(ctx, nativeCodexIdentityContextKey{}, &nativeCodexRequestIdentity{originalBody: append([]byte(nil), responsesBody...)})
+	}
 	token, _, err := s.GetAccessToken(ctx, account)
 	if err != nil {
 		return nil, fmt.Errorf("get access token: %w", err)
@@ -347,7 +352,7 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
 
-	if promptCacheKey != "" {
+	if promptCacheKey != "" && !account.UsesNativeCodexTokenBroker() {
 		apiKeyID := getAPIKeyIDFromContext(c)
 		sessionKey := promptCacheKey
 		if !compatPromptCacheTenantIsolated {

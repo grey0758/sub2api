@@ -149,7 +149,8 @@ func hasOpenAIResponsesNamespaceToolDeclaration(body []byte) bool {
 // openAIResponsesToolCallItemTypes 是携带 namespace 的调用项类型集合。与
 // removeOpenAIResponsesRejectedNamespaceAtIndex 的反应式白名单保持一致；codex-rs
 // protocol/src/models.rs 中只有 FunctionCall 与 CustomToolCall 序列化 namespace，
-// 其余类型带该字段一定是非 Codex 客户端或历史残留，清掉才安全。
+// 其余类型通常是历史残留。0.171 的 agent.goal_objective 合成上下文是例外，
+// 在 stripOpenAIResponsesInputNamespaces 中按完整形状单独保留。
 var openAIResponsesToolCallItemTypes = map[string]bool{
 	"function_call":    true,
 	"tool_call":        true,
@@ -208,7 +209,7 @@ func stripOpenAIResponsesInputNamespaces(body []byte, keepToolCallNamespaces boo
 	var stripErr error
 	input.ForEach(func(_, item gjson.Result) bool {
 		if !item.IsObject() || !item.Get("namespace").Exists() ||
-			(keepToolCallNamespaces && isOpenAIResponsesToolCallItemType(item.Get("type").String())) {
+			(keepToolCallNamespaces && (isOpenAIResponsesToolCallItemType(item.Get("type").String()) || IsCodexGoalContextItem(item))) {
 			return true
 		}
 		itemBody, err := sjson.DeleteBytes([]byte(item.Raw), "namespace")
