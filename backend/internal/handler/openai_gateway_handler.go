@@ -380,7 +380,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	seedOpenAIForwardImageIntentHint(c, channelMapping.Mapped, imageIntent)
 
 	// 提前校验 function_call_output 是否具备可关联上下文，避免上游 400。
-	if !h.validateFunctionCallOutputRequest(c, body, reqLog) {
+	krillCompatibility := krillResponsesCompatibilityEnabled(h.cfg, apiKey)
+	if !h.validateFunctionCallOutputRequest(c, body, reqLog, krillCompatibility) {
 		return
 	}
 
@@ -531,6 +532,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// 从不可变的 canonical forwardBody 派生本次尝试 body 并整块剔除上游私有的加密
 		// reasoning item（含耦合的 id/summary），避免非透传上游 400 拒绝 Kiro reasoning 形态。
 		attemptBody := h.deriveOpenAIForwardAttemptBody(reqLog, forwardBody, account, &passthroughFailoverState)
+		if krillCompatibility {
+			attemptBody = normalizeKrillResponsesEffort(attemptBody, account)
+		}
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
@@ -1297,7 +1301,10 @@ func (h *OpenAIGatewayHandler) ensureAnthropicErrorResponse(c *gin.Context, stre
 	return true
 }
 
-func (h *OpenAIGatewayHandler) validateFunctionCallOutputRequest(c *gin.Context, body []byte, reqLog *zap.Logger) bool {
+func (h *OpenAIGatewayHandler) validateFunctionCallOutputRequest(c *gin.Context, body []byte, reqLog *zap.Logger, krillCompatibility bool) bool {
+	if krillCompatibility {
+		body = krillGoalValidationBody(body)
+	}
 	if !gjson.GetBytes(body, `input.#(type=="function_call_output")`).Exists() {
 		return true
 	}
