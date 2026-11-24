@@ -3,12 +3,15 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
+	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -16,6 +19,23 @@ import (
 func krillResponsesCompatibilityEnabled(cfg *config.Config, apiKey *service.APIKey) bool {
 	return cfg != nil && cfg.Gateway.KrillCompatibilityGroupID > 0 && apiKey != nil &&
 		apiKey.GroupID != nil && *apiKey.GroupID == cfg.Gateway.KrillCompatibilityGroupID
+}
+
+func (h *OpenAIGatewayHandler) ensureKrillIncompleteResponsesStreamError(c *gin.Context, err error, enabled bool) bool {
+	if !enabled || !errors.Is(err, service.ErrOpenAIPassthroughStreamMissingTerminal) ||
+		!isBareOpenAIResponsesPath(c) || service.IsOpenAIResponsesCompactPathForTest(c) || c.Request.Context().Err() != nil ||
+		c.Writer.Size() <= 0 || service.IsResponseCommitted(c) {
+		return false
+	}
+	// The last upstream SSE line may have ended at EOF without a blank line.
+	// Separate the gateway error so the client can parse it as its own event.
+	if _, writeErr := io.WriteString(c.Writer, "\n"); writeErr != nil {
+		_ = c.Error(writeErr)
+		return true
+	}
+	h.handleStreamingAwareErrorWithCode(c, http.StatusBadGateway, "upstream_error", "upstream_stream_incomplete",
+		"Upstream response ended before a terminal event", true, true)
+	return true
 }
 
 // Only the validation input is projected. The original synthetic goal and its

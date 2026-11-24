@@ -13,6 +13,10 @@ const (
 	OpenAIUpstreamStreamReadErrorCode  = "upstream_stream_read_error"
 )
 
+// ErrOpenAIPassthroughStreamMissingTerminal identifies EOF after streaming
+// output was written and before the upstream sent a terminal event.
+var ErrOpenAIPassthroughStreamMissingTerminal = errors.New("stream usage incomplete: missing terminal event")
+
 type openAIUpstreamStreamReadError struct {
 	cause         error
 	clientCode    string
