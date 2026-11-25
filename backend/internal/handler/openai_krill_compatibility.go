@@ -17,8 +17,18 @@ import (
 )
 
 func krillResponsesCompatibilityEnabled(cfg *config.Config, apiKey *service.APIKey) bool {
-	return cfg != nil && cfg.Gateway.KrillCompatibilityGroupID > 0 && apiKey != nil &&
-		apiKey.GroupID != nil && *apiKey.GroupID == cfg.Gateway.KrillCompatibilityGroupID
+	if cfg == nil || apiKey == nil || apiKey.GroupID == nil || *apiKey.GroupID <= 0 {
+		return false
+	}
+	if cfg.Gateway.KrillCompatibilityGroupID > 0 && *apiKey.GroupID == cfg.Gateway.KrillCompatibilityGroupID {
+		return true
+	}
+	for _, id := range cfg.Gateway.KrillCompatibilityGroupIDs {
+		if id > 0 && id == *apiKey.GroupID {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *OpenAIGatewayHandler) ensureKrillIncompleteResponsesStreamError(c *gin.Context, err error, enabled bool) bool {

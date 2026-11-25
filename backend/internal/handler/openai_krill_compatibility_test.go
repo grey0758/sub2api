@@ -41,8 +41,11 @@ func TestKrillResponsesHTTPStreamTermination(t *testing.T) {
 		terminal  string
 		wantCode  string
 		wantUsage int
+		central   bool
 	}{
 		{name: "missing terminal", group: 8, wantCode: "upstream_stream_incomplete"},
+		{name: "central second group missing terminal", group: 9, central: true, wantCode: "upstream_stream_incomplete"},
+		{name: "central second group completed", group: 9, central: true, terminal: complete, wantUsage: 1},
 		{name: "completed", group: 8, terminal: complete, wantUsage: 1},
 		{name: "provider failure", group: 8, terminal: rejected, wantCode: "context_length_exceeded"},
 		{name: "outside Krill group", group: 9, terminal: "\n", wantCode: "upstream_error"},
@@ -64,6 +67,9 @@ func TestKrillResponsesHTTPStreamTermination(t *testing.T) {
 			cfg.Default.RateMultiplier = 1
 			cfg.Security.URLAllowlist.AllowInsecureHTTP = true
 			cfg.Gateway.KrillCompatibilityGroupID = 8
+			if tc.central {
+				cfg.Gateway.KrillCompatibilityGroupIDs = []int64{9}
+			}
 			account := service.Account{
 				ID: 11, Name: "krill-fixture", Status: service.StatusActive, Schedulable: true,
 				Type: service.AccountTypeAPIKey, Platform: service.PlatformOpenAI,
