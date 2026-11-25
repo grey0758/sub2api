@@ -926,6 +926,8 @@ type GatewayConfig struct {
 	KrillCompatibilityGroupID int64 `mapstructure:"krill_compatibility_group_id"`
 	// KrillCompatibilityGroupIDs adds explicitly isolated Krill groups on a central gateway.
 	KrillCompatibilityGroupIDs []int64 `mapstructure:"krill_compatibility_group_ids"`
+	// KrillStrictGroupIsolation keeps central fixed-egress groups isolated even in simple billing mode.
+	KrillStrictGroupIsolation bool `mapstructure:"krill_strict_group_isolation"`
 	// OpenAIWS: OpenAI Responses WebSocket 配置（默认开启，可按需回滚到 HTTP）
 	OpenAIWS GatewayOpenAIWSConfig `mapstructure:"openai_ws"`
 	// Live: ChatGPT Frameless Live 会话配置。
@@ -2226,6 +2228,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_compact_model", "gpt-5.4")
 	viper.SetDefault("gateway.krill_compatibility_group_id", int64(0))
 	viper.SetDefault("gateway.krill_compatibility_group_ids", []int64{})
+	viper.SetDefault("gateway.krill_strict_group_isolation", false)
 	viper.SetDefault("gateway.live.max_session_duration_seconds", 3600)
 	// OpenAI Responses WebSocket（默认开启；可通过 force_http 紧急回滚）
 	viper.SetDefault("gateway.openai_ws.enabled", true)

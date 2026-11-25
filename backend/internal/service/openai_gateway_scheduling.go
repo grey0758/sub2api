@@ -1193,6 +1193,11 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 
 func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, platform string) ([]Account, error) {
 	platform = normalizeOpenAICompatiblePlatform(platform)
+	if s.krillStrictGroupIsolation(groupID) {
+		// Simple-mode snapshots intentionally aggregate all accounts. Fixed-egress
+		// lanes require an authoritative group query instead of that shared pool.
+		return s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, *groupID, platform)
+	}
 	if s.schedulerSnapshot != nil {
 		accounts, _, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, false)
 		return accounts, err
@@ -1267,6 +1272,9 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Co
 	if account == nil {
 		return nil
 	}
+	if s.krillStrictGroupIsolation(groupID) && !openAIStickyAccountMatchesGroup(account, groupID) {
+		return nil
+	}
 	platform = normalizeOpenAICompatiblePlatform(platform)
 	if s.schedulerSnapshot == nil || s.accountRepo == nil {
 		if !isOpenAICompatibleAccountEligibleForRequest(ctx, account, platform, requestedModel, requireCompact, requiredCapability) {
@@ -1304,10 +1312,28 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDB(ctx context.Co
 }
 
 func (s *OpenAIGatewayService) openAIAccountMatchesSchedulingGroup(account *Account, groupID *int64) bool {
+	if s.krillStrictGroupIsolation(groupID) {
+		return openAIStickyAccountMatchesGroup(account, groupID)
+	}
 	if s != nil && s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
 		return account != nil
 	}
 	return openAIStickyAccountMatchesGroup(account, groupID)
+}
+
+func (s *OpenAIGatewayService) krillStrictGroupIsolation(groupID *int64) bool {
+	if s == nil || s.cfg == nil || !s.cfg.Gateway.KrillStrictGroupIsolation || groupID == nil || *groupID <= 0 {
+		return false
+	}
+	if s.cfg.Gateway.KrillCompatibilityGroupID > 0 && *groupID == s.cfg.Gateway.KrillCompatibilityGroupID {
+		return true
+	}
+	for _, id := range s.cfg.Gateway.KrillCompatibilityGroupIDs {
+		if id > 0 && id == *groupID {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *OpenAIGatewayService) getSchedulableAccount(ctx context.Context, accountID int64) (*Account, error) {
