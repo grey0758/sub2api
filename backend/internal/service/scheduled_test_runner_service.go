@@ -19,6 +19,7 @@ type ScheduledTestRunnerService struct {
 	accountTestSvc *AccountTestService
 	rateLimitSvc   *RateLimitService
 	cfg            *config.Config
+	krillRecovery  *Krill403Recovery
 
 	cron      *cron.Cron
 	startOnce sync.Once
@@ -48,6 +49,10 @@ func (s *ScheduledTestRunnerService) Start() {
 		return
 	}
 	s.startOnce.Do(func() {
+		if s.accountTestSvc != nil && s.rateLimitSvc != nil {
+			s.krillRecovery = newKrill403Recovery(s.rateLimitSvc, s.accountTestSvc.httpUpstream)
+			s.krillRecovery.Start()
+		}
 		loc := time.Local
 		if s.cfg != nil {
 			if parsed, err := time.LoadLocation(s.cfg.Timezone); err == nil && parsed != nil {
@@ -73,6 +78,9 @@ func (s *ScheduledTestRunnerService) Stop() {
 		return
 	}
 	s.stopOnce.Do(func() {
+		if s.krillRecovery != nil {
+			s.krillRecovery.Stop()
+		}
 		if s.cron != nil {
 			ctx := s.cron.Stop()
 			select {
