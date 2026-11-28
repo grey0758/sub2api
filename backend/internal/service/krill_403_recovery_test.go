@@ -239,3 +239,16 @@ func TestKrill403TerminalValidation(t *testing.T) {
 		require.False(t, krill403Complete([]byte(raw), "marker"))
 	}
 }
+
+func TestKrill403ExpiredTimestampStillRequiresSuccessfulProbe(t *testing.T) {
+	a := krillTestAccount()
+	past := time.Now().Add(-time.Hour)
+	h := krill403Hold{Kind: krill403RecoveryKind, StatusCode: 403, TriggeredAt: past.Unix(), NextProbeAt: past.Unix()}
+	raw, _ := json.Marshal(h)
+	a.TempUnschedulableReason = string(raw)
+	a.TempUnschedulableUntil = &past
+	require.False(t, a.IsSchedulable())
+	a.TempUnschedulableReason = ""
+	a.TempUnschedulableUntil = nil
+	require.True(t, a.IsSchedulable())
+}

@@ -176,6 +176,14 @@ func (a *Account) EffectiveLoadFactor() int {
 }
 
 func (a *Account) IsSchedulable() bool {
+	// Krill recovery requires a proven successful probe, even if an outage has
+	// outlasted the temporary timestamp. This marker is cleared atomically by
+	// that worker; ordinary accounts retain their existing expiry semantics.
+	if enabled, _ := a.Credentials[Krill403RecoveryEnabled].(bool); enabled && a.TempUnschedulableReason != "" {
+		if _, held := parseKrill403Hold(a.TempUnschedulableReason); held {
+			return false
+		}
+	}
 	if !a.IsActive() || !a.Schedulable {
 		return false
 	}
